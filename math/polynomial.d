@@ -93,8 +93,68 @@ struct Polynomial(T, string _x = "x")
 		return Polynomial(assumeUnique(r));
 	}
 
+	/** returns leading coefficient */
+	T leading() const @property
+	{
+		return coeffs[$-1];
+	}
+
+	void divRem(Polynomial b, ref Polynomial quot, ref Polynomial rem)
+	{
+		if(b.degree < 0)
+			throw new Exception("tried to divide by 0-polynomial");
+
+		if(this.degree < b.degree)
+		{
+			quot = Polynomial(null);
+			rem = this;
+			return;
+		}
+
+		auto q = new T[this.degree - b.degree + 1];
+		auto r = coeffs.dup;
+
+		for(int i = cast(int)r.length-1; i >= b.degree; --i)
+		{
+			auto c = q[i-b.degree] = r[i]/b.leading;
+			for(int j = 0; j <= b.degree; ++j)
+				r[i-b.degree+j] = r[i-b.degree+j] - c*b.coeffs[j];
+		}
+		rem = Polynomial(assumeUnique(r));
+		quot = Polynomial(assumeUnique(q));
+	}
+
+	Polynomial opBinary(string op)(Polynomial b) const
+		if(op == "%")
+	{
+		if(b.degree < 0)
+			throw new Exception("tried to divide by 0-polynomial");
+
+		if(this.degree < b.degree)
+			return this;
+
+		auto r = coeffs.dup;
+		for(int i = cast(int)r.length-1; i >= b.degree; --i)
+		{
+			auto c = r[i]/b.leading;
+			for(int j = 0; j <= b.degree; ++j)
+				r[i-b.degree+j] = r[i-b.degree+j] - c*b.coeffs[j];
+		}
+
+		return Polynomial(assumeUnique(r));
+	}
+
 	bool opEquals(Polynomial r) const
 	{
 		return coeffs[] == r.coeffs[];
 	}
+}
+
+Polynomial!(T, _x) gcd(T, string _x)(Polynomial!(T,_x) a, Polynomial!(T,_x) b)
+{
+	// TODO: make it non-recursive and with fewer allocations
+	if(a.degree<0)
+		return b;
+	else
+		return gcd(b%a, a);
 }

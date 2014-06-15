@@ -54,8 +54,13 @@ struct Coset(Ring)
 
 	Coset opBinary(string op)(Coset rhs) const
 	{
-		assert(this.mod == rhs.mod);
-		return opBinary!op(rhs.val);
+		static if(op == "/")
+			return this * rhs.inverse;
+		else
+		{
+			assert(this.mod == rhs.mod);
+			return opBinary!op(rhs.val);
+		}
 	}
 
 	bool opEquals(Coset r) const
