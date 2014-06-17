@@ -71,7 +71,7 @@ struct Integer
 	/** constructor for given value */
 	this(int v)
 	{
-		if(v < cacheSize)
+		if(0 <= v && v < cacheSize)
 		{
 			z = cache[v];
 			return;
@@ -98,6 +98,13 @@ struct Integer
 		z = r;
 	}
 
+	static Integer random(Integer n)
+	{
+		auto r = create();
+		__gmpz_urandomm(r, &rand, n.z);
+		return Integer(r);
+	}
+
 	static enum nan = Integer.init;
 
 	bool isNan() const @property
@@ -116,6 +123,22 @@ struct Integer
 	int sign() const
 	{
 		return z._mp_size < 0 ? -1 : z._mp_size > 0;
+	}
+
+	/** number of bits */
+	size_t length() const @property
+	{
+		if(sign < 0)
+			throw new Exception("negative integer dont have a length (actually more like infinity");
+		if(sign == 0)
+			return 0;
+		return __gmpz_sizeinbase(z, 2);
+	}
+
+	/** test if bit i is set */
+	bool opIndex(size_t i) const
+	{
+		return __gmpz_tstbit(z, i) != 0;
 	}
 
 	Integer opUnary(string op)() const
@@ -147,6 +170,12 @@ struct Integer
 			else       __gmpz_add_ui(r, z, -b);
 		else static if(op == "*")
 			__gmpz_mul_si(r, z, b);
+		else static if(op == "^^")
+		{
+			if(b < 0)
+				throw new Exception("negative powers of integers dont exist");
+			__gmpz_pow_ui(r, z, b);
+		}
 
 		else static assert(false, "binary '"~op~"' is not defined");
 
@@ -289,6 +318,7 @@ struct mpz_t
 	// having this pointer in a non-pointer variable is fine because it is never actually used in D code.
 	// In particular it does never point to GC-memory.
 }
+
 
 size_t __gmpz_sizeinbase (const mpz_t* op , int base );
 
@@ -448,3 +478,33 @@ void __gmpz_setbit (mpz_t* rop , size_t bit_index );
 void __gmpz_clrbit (mpz_t* rop , size_t bit_index );
 void __gmpz_combit (mpz_t* rop , size_t bit_index );
 int __gmpz_tstbit (const mpz_t* op , size_t bit_index );
+
+
+private:
+
+struct mp_randstate_t
+{
+  mpz_t _mp_seed;	  /* _mp_d member points to state of the generator. */
+  int   _mp_alg;  /* Currently unused. */
+  void* _mp_algdata; /* Pointer to function pointers structure.  */
+}
+
+void __gmp_randinit_default (mp_randstate_t*);
+//void __gmp_randinit_lc_2exp (mp_randstate_t*, mpz_srcptr, c_ulong, mp_bitcnt_t);
+int __gmp_randinit_lc_2exp_size (mp_randstate_t*, mp_bitcnt_t);
+void __gmp_randinit_mt (mp_randstate_t*);
+void __gmp_randinit_set (mp_randstate_t*, const mp_randstate_t*);
+//void __gmp_randseed (mp_randstate_t*, mpz_srcptr);
+void __gmp_randseed_ui (mp_randstate_t*, c_ulong);
+void __gmp_randclear (mp_randstate_t*);
+c_ulong __gmp_urandomb_ui (mp_randstate_t*, c_ulong);
+c_ulong __gmp_urandomm_ui (mp_randstate_t*, c_ulong);
+void __gmpz_urandomm (mpz_t* rop, mp_randstate_t* state, const mpz_t* n); // generates uniform number in [0,n)
+
+__gshared mp_randstate_t rand; // TODO: make it thread-local, i.e. remove the "__gshared"
+
+static this()
+{
+	__gmp_randinit_default(&rand);
+	__gmp_randseed_ui(&rand, 42);
+}

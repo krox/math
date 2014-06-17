@@ -25,6 +25,15 @@ struct Coset(Ring)
 		this(Ring(val), Ring(mod));
 	}
 
+	static Coset random(Ring mod)
+	{
+		static if(is(Ring == Integer))
+		{
+			return Coset(Ring.random(mod), mod); // TODO: use fast no-check constructor
+		}
+		else assert(false, "TODO");
+	}
+
 	string toString() const @property
 	{
 		return "["~val.toString~"]";
@@ -41,6 +50,12 @@ struct Coset(Ring)
 		{
 			assert(false, "TODO");
 		}
+	}
+
+	Coset opUnary(string op)() const
+		if(op == "-")
+	{
+		return Coset(-val, mod);
 	}
 
 	Coset opBinary(string op, T)(T rhs) const
