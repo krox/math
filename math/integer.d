@@ -119,6 +119,12 @@ struct Integer
 		return to!string(__gmpz_get_str(buf.ptr, 10, z));
 	}
 
+	int opCast(T)() const
+		if(is(T == int))
+	{
+		return __gmpz_get_si(z);
+	}
+
 	/** returns -1 / 0 / +1, faster than actual compare */
 	int sign() const
 	{
