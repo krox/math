@@ -15,6 +15,7 @@ module math.finitefield;
 private import std.conv : to;
 private import std.exception : assumeUnique;
 private import std.typecons : Rebindable;
+private import std.random : uniform;
 
 private import math.conway;
 private import math.prime;
@@ -100,9 +101,15 @@ class FiniteField
 			return FFE(this, log(x));
 	}
 
+	FFE random() immutable @property
+	{
+		return FFE(this, uniform(-1,q-1));
+	}
+
 	private immutable(int)[] exp(int r) immutable
 	{
 		assert(r >= 0);
+		assert(r < q-1);
 		return expTable[r*n..(r+1)*n];
 	}
 
@@ -123,6 +130,14 @@ struct FFE
 	{
 		this.field = field;
 		this.r = r;
+	}
+
+	invariant()
+	{
+		if(field is null)
+			return;
+		if(r < -1 || r >= field.q-1)
+			throw new Exception("finite field operations are broken");
 	}
 
 	FFE opUnary(string op)() const
@@ -147,7 +162,7 @@ struct FFE
 		if(r == -1)
 			throw new Exception("division by zero (in a finite field)");
 
-		return FFE(field, field.q-1-r);
+		return FFE(field, (field.q-1-r)%(field.q-1));
 	}
 
 	FFE opBinary(string op)(int b) const
@@ -233,7 +248,7 @@ struct FFE
 		if(op == "^^")
 	{
 		if(r == -1)
-			if(e == 0)
+			if(e == 0) // TODO: e% == 0, maybe make it undefined
 				return FFE(field, 0);
 			else
 				return FFE(field, -1);
@@ -262,6 +277,15 @@ struct FFE
 			throw new Exception("tried to compare elements of different finite fields");
 
 		return r == b.r;
+	}
+
+	/**
+	 * Finite fields can not be ordered in a way compatible with the field
+	 * structure, but its still useful to have a canonical order.
+	 */
+	int opCmp(FFE b) const
+	{
+		return r - b.r;
 	}
 
 	string toString() const @property

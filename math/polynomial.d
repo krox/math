@@ -4,6 +4,7 @@ private import std.algorithm : map, min, max;
 private import std.conv : to;
 private import std.array : join;
 private import std.exception : assumeUnique;
+private import core.bitop : bsr;
 
 private import math.integer;
 
@@ -16,6 +17,24 @@ struct Polynomial(T, string _x = "x")
 		while(coeffs.length && coeffs[$-1] == 0)
 			coeffs = coeffs[0..$-1];
 		this.coeffs = coeffs;
+	}
+
+	this(Field)(const(int)[] c, Field field)
+	{
+		auto coeffs = new T[c.length];
+		for(size_t i = 0; i < c.length; ++i)
+			coeffs[i] = field(c[i]);
+		this(assumeUnique(coeffs));
+	}
+
+	static Polynomial random(Field)(int d, Field field) @property
+	{
+		if(d < 0)
+			return Polynomial(null);
+		auto coeffs = new T[d+1];
+		for(size_t i = 0; i < coeffs.length; ++i)
+			coeffs[i] = field.random;
+		return Polynomial(assumeUnique(coeffs));
 	}
 
 	/** power of highest non-zero term. -1 for the 0-polynomial */
@@ -221,6 +240,16 @@ struct Polynomial(T, string _x = "x")
 	bool opEquals(Polynomial r) const
 	{
 		return coeffs[] == r.coeffs[];
+	}
+
+	int opCmp(Polynomial r) const
+	{
+		if(degree != r.degree)
+			return degree - r.degree;
+		for(int i = degree; i >= 0; --i)
+			if(int x = coeffs[i].opCmp(r.coeffs[i]))
+				return x;
+		return 0;
 	}
 
 	bool isSquareFree() const @property
