@@ -29,7 +29,7 @@ class FiniteField
 	immutable int[] expTable; // more like int[][]
 	immutable int[] logTable; // entry 0 not used
 
-	private this(int p, int n) immutable
+	private this(int p, int n) immutable pure
 	{
 		this.p = p;
 		this.n = n;
@@ -90,7 +90,7 @@ class FiniteField
 		return cache[q] = new immutable(FiniteField)(p, n);
 	}
 
-	FFE opCall(int x) immutable
+	FFE opCall(int x) immutable pure
 	{
 		x %= p;
 		x += p;
@@ -106,7 +106,7 @@ class FiniteField
 		return FFE(this, uniform(-1,q-1));
 	}
 
-	private immutable(int)[] exp(int r) immutable
+	private immutable(int)[] exp(int r) immutable pure
 	{
 		assert(r >= 0);
 		assert(r < q-1);
@@ -114,7 +114,7 @@ class FiniteField
 	}
 
 	// log(0) = -1, its kinda right
-	private int log(int p) immutable
+	private int log(int p) immutable pure
 	{
 		assert(p >= 0);
 		return logTable[p];
@@ -126,13 +126,13 @@ struct FFE
 	Rebindable!(immutable(FiniteField)) field;
 	int r; // r = -1 means zero
 
-	private this(immutable(FiniteField) field, int r)
+	private this(immutable(FiniteField) field, int r) pure
 	{
 		this.field = field;
 		this.r = r;
 	}
 
-	invariant()
+	pure invariant()
 	{
 		if(field is null)
 			return;
@@ -140,7 +140,7 @@ struct FFE
 			throw new Exception("finite field operations are broken");
 	}
 
-	FFE opUnary(string op)() const
+	FFE opUnary(string op)() const pure
 		if(op == "-")
 	{
 		if(r == -1) // -0 = 0
@@ -157,7 +157,7 @@ struct FFE
 		return FFE(field, field.log(z));
 	}
 
-	FFE inverse() const @property
+	FFE inverse() const @property pure
 	{
 		if(r == -1)
 			throw new Exception("division by zero (in a finite field)");
@@ -165,14 +165,14 @@ struct FFE
 		return FFE(field, (field.q-1-r)%(field.q-1));
 	}
 
-	FFE opBinary(string op)(int b) const
+	FFE opBinary(string op)(int b) const pure
 		if(op == "+" || op == "-" || op == "*" || op == "/")
 	{
 		// TODO: + and - could be faster without this lowering
 		return opBinary!op(field(b));
 	}
 
-	FFE opBinary(string op)(FFE b) const
+	FFE opBinary(string op)(FFE b) const pure
 		if(op == "+")
 	{
 		if(field !is b.field)
@@ -196,7 +196,7 @@ struct FFE
 		return FFE(field, field.log(z));
 	}
 
-	FFE opBinary(string op)(FFE b) const
+	FFE opBinary(string op)(FFE b) const pure
 		if(op == "-")
 	{
 		if(field !is b.field)
@@ -220,7 +220,7 @@ struct FFE
 		return FFE(field, field.log(z));
 	}
 
-	FFE opBinary(string op)(FFE b) const
+	FFE opBinary(string op)(FFE b) const pure
 		if(op == "*")
 	{
 		if(field !is b.field)
@@ -231,7 +231,7 @@ struct FFE
 		return FFE(field, (r + b.r) % (field.q - 1));
 	}
 
-	FFE opBinary(string op)(FFE b) const
+	FFE opBinary(string op)(FFE b) const pure
 		if(op == "/")
 	{
 		if(field !is b.field)
@@ -244,7 +244,7 @@ struct FFE
 		return FFE(field, (r - b.r + field.q - 1) % (field.q - 1));
 	}
 
-	FFE opBinary(string op)(int e) const
+	FFE opBinary(string op)(int e) const pure
 		if(op == "^^")
 	{
 		if(r == -1)
@@ -256,7 +256,7 @@ struct FFE
 		return FFE(field, (r*e) % (field.q-1));
 	}
 
-	bool opEquals(int b) const
+	bool opEquals(int b) const pure
 	{
 		if(r == -1)
 			return b == 0;
@@ -271,7 +271,7 @@ struct FFE
 		return x[0] == b;
 	}
 
-	bool opEquals(FFE b) const
+	bool opEquals(FFE b) const pure
 	{
 		if(field !is b.field)
 			throw new Exception("tried to compare elements of different finite fields");
@@ -283,12 +283,12 @@ struct FFE
 	 * Finite fields can not be ordered in a way compatible with the field
 	 * structure, but its still useful to have a canonical order.
 	 */
-	int opCmp(FFE b) const
+	int opCmp(FFE b) const pure
 	{
 		return r - b.r;
 	}
 
-	string toString() const @property
+	string toString() const @property pure
 	{
 		if(r == -1)
 			return "0";
