@@ -176,6 +176,13 @@ struct Integer
 			else       __gmpz_add_ui(r, z, -b);
 		else static if(op == "*")
 			__gmpz_mul_si(r, z, b);
+		else static if(op == "/")
+		{
+			if(b>0)
+				__gmpz_fdiv_q_ui(r, z, b);
+			else
+				throw new Exception("TODO");
+		}
 		else static if(op == "^^")
 		{
 			if(b < 0)
