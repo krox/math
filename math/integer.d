@@ -2,6 +2,9 @@ module math.integer;
 
 private import std.string : toStringz;
 private import std.conv : to;
+private import std.typecons;
+private import std.exception : assumeUnique;
+
 
 /**
  * BigInteger type using the GMP library.
@@ -14,58 +17,30 @@ private import std.conv : to;
  */
 struct Integer
 {
-	package const(mpz_t)* z;
+	Rebindable!(immutable(GmpInteger)) z;
 
-	/** TODO: remove this class. It currently only exists to ensure destructor-calls on GC collections */
-	private static final class mpz_class
+	immutable(mpz_t)* ptr() const @property
 	{
-		mpz_t z;
-
-		version(count_gmp)
-		{
-			static int destructCount = 0;
-
-			static ~this()
-			{
-				import std.stdio;
-				writefln("GMP integers destructed: %s", destructCount);
-			}
-		}
-
-		/** destructor */
-		~this()
-		{
-			__gmpz_clear(&z);
-
-			version(count_gmp)
-				destructCount++;
-		}
-	}
-
-	private static mpz_t* create()
-	{
-		auto z = &(new mpz_class).z;
-		__gmpz_init(z);
-		return z;
-	}
-
-	private this(mpz_t* z)
-	{
-		this.z = z;
+		return &z.z;
 	}
 
 	private enum cacheSize = 10;
 
-	private static const mpz_t*[cacheSize] cache;
+	private static const immutable(GmpInteger)[cacheSize] cache;
 
 	static this()
 	{
 		for(int i = 0; i < cacheSize; ++i)
 		{
-			auto z = &(new mpz_class).z;
-			__gmpz_init_set_si(z, i);
-			cache[i] = z;
+			auto z = new GmpInteger;
+			__gmpz_init_set_si(z.ptr, i);
+			cache[i] = cast(immutable)z;
 		}
+	}
+
+	this(immutable GmpInteger z)
+	{
+		this.z = z;
 	}
 
 	/** constructor for given value */
@@ -73,36 +48,37 @@ struct Integer
 	{
 		if(0 <= v && v < cacheSize)
 		{
-			z = cache[v];
+			this(cache[v]);
 			return;
 		}
-		auto r = &(new mpz_class).z;
-		__gmpz_init_set_si(r, v);
-		z = r;
+
+		auto r = new GmpInteger;
+		__gmpz_set_si(r.ptr, v);
+		this(cast(immutable)r);
 	}
 
 	/** ditto */
 	this(double v)
 	{
-		auto r = &(new mpz_class).z;
-		__gmpz_init_set_d(r, v);
-		z = r;
+		auto r = new GmpInteger;
+		__gmpz_set_d(r.ptr, v);
+		this(cast(immutable)r);
 	}
 
 	/** ditto */
 	this(string v)
 	{
 		// TODO: throw exception on bad strings
-		auto r = &(new mpz_class).z;
-		__gmpz_init_set_str(r, toStringz(v), 0);
-		z = r;
+		auto r = new GmpInteger;
+		__gmpz_init_set_str(r.ptr, toStringz(v), 0);
+		this(cast(immutable)r);
 	}
 
 	static Integer random(Integer n)
 	{
-		auto r = create();
-		__gmpz_urandomm(r, &rand, n.z);
-		return Integer(r);
+		auto r = new GmpInteger;
+		__gmpz_urandomm(r.ptr, &rand, n.ptr);
+		return Integer(cast(immutable)r);
 	}
 
 	static enum nan = Integer.init;
@@ -114,9 +90,9 @@ struct Integer
 
 	string toString() const @property
 	{
-		auto buflen = __gmpz_sizeinbase(z, 10)+2;	// one for sign, one for \0
+		auto buflen = __gmpz_sizeinbase(ptr, 10)+2;	// one for sign, one for \0
 		auto buf = new char[buflen];
-		return to!string(__gmpz_get_str(buf.ptr, 10, z));
+		return to!string(__gmpz_get_str(buf.ptr, 10, ptr));
 	}
 
 	int opCast(T)() const
@@ -128,7 +104,7 @@ struct Integer
 	/** returns -1 / 0 / +1, faster than actual compare */
 	int sign() const
 	{
-		return z._mp_size < 0 ? -1 : z._mp_size > 0;
+		return z.z._mp_size < 0 ? -1 : z.z._mp_size > 0;
 	}
 
 	/** number of bits */
@@ -138,48 +114,48 @@ struct Integer
 			throw new Exception("negative integer dont have a length (actually more like infinity");
 		if(sign == 0)
 			return 0;
-		return __gmpz_sizeinbase(z, 2);
+		return __gmpz_sizeinbase(ptr, 2);
 	}
 
 	/** test if bit i is set */
 	bool opIndex(size_t i) const
 	{
-		return __gmpz_tstbit(z, i) != 0;
+		return __gmpz_tstbit(ptr, i) != 0;
 	}
 
 	Integer opUnary(string op)() const
 		if(op == "-")
 	{
-		auto r = create();
-		__gmpz_neg(r, z);
-		return Integer(r);
+		auto r = new GmpInteger;
+		__gmpz_neg(r.ptr, ptr);
+		return Integer(cast(immutable)r);
 	}
 
 	Integer inverseMod(const Integer mod) const
 	{
-		auto r = create();
-		__gmpz_invert(r, z, mod.z);
-		return Integer(r);
+		auto r = new GmpInteger;
+		__gmpz_invert(r.ptr, ptr, mod.ptr);
+		return Integer(cast(immutable)r);
 	}
 
 	// TODO: Integer <-> int division and modulus (why are there so few *_si functions in gmp?)
 
 	Integer opBinary(string op)(int b) const
 	{
-		auto r = create();
+		auto r = new GmpInteger;
 
 		static if(op == "+")
-		     if(b >= 0) __gmpz_add_ui(r, z, b);
-		     else       __gmpz_sub_ui(r, z, -b);
+		     if(b >= 0) __gmpz_add_ui(r.ptr, ptr, b);
+		     else       __gmpz_sub_ui(r.ptr, ptr, -b);
 		else static if(op == "-")
-			if(b >= 0) __gmpz_sub_ui(r, z, b);
-			else       __gmpz_add_ui(r, z, -b);
+			if(b >= 0) __gmpz_sub_ui(r.ptr, ptr, b);
+			else       __gmpz_add_ui(r.ptr, ptr, -b);
 		else static if(op == "*")
-			__gmpz_mul_si(r, z, b);
+			__gmpz_mul_si(r.ptr, ptr, b);
 		else static if(op == "/")
 		{
 			if(b>0)
-				__gmpz_fdiv_q_ui(r, z, b);
+				__gmpz_fdiv_q_ui(r.ptr, ptr, b);
 			else
 				throw new Exception("TODO");
 		}
@@ -187,12 +163,12 @@ struct Integer
 		{
 			if(b < 0)
 				throw new Exception("negative powers of integers dont exist");
-			__gmpz_pow_ui(r, z, b);
+			__gmpz_pow_ui(r.ptr, ptr, b);
 		}
 
 		else static assert(false, "binary '"~op~"' is not defined");
 
-		return Integer(r);
+		return Integer(cast(immutable)r);
 	}
 
 	Integer opBinaryRight(string op)(int a) const
@@ -204,92 +180,135 @@ struct Integer
 	Integer opBinaryRight(string op)(int a) const
 		if(op == "-")
 	{
-
-		auto r = create();
+		auto r = new GmpInteger;
 		if(a >= 0)
-			__gmpz_ui_sub(r, a, z);
+			__gmpz_ui_sub(r.ptr, a, ptr);
 		else
 		{
-			__gmpz_add_ui(r, z, -a);
-			__gmpz_neg(r, r);
+			__gmpz_add_ui(r.ptr, ptr, -a);
+			__gmpz_neg(r.ptr, r.ptr);
 		}
 
-		return Integer(r);
+		return Integer(cast(immutable)r);
 	}
 
 	Integer opBinary(string op)(Integer b) const
 	{
-		auto r = create();
+		auto r = new GmpInteger;
 
-		     static if(op == "+") __gmpz_add(r, z, b.z);
-		else static if(op == "-") __gmpz_sub(r, z, b.z);
-		else static if(op == "*") __gmpz_mul(r, z, b.z);
-		else static if(op == "/") __gmpz_fdiv_q(r, z, b.z);
-		else static if(op == "%") __gmpz_fdiv_r(r, z, b.z);
+		     static if(op == "+") __gmpz_add(r.ptr, ptr, b.ptr);
+		else static if(op == "-") __gmpz_sub(r.ptr, ptr, b.ptr);
+		else static if(op == "*") __gmpz_mul(r.ptr, ptr, b.ptr);
+		else static if(op == "/") __gmpz_fdiv_q(r.ptr, ptr, b.ptr);
+		else static if(op == "%") __gmpz_fdiv_r(r.ptr, ptr, b.ptr);
 		else static assert(false, "binary '"~op~"' is not defined");
 
-		return Integer(r);
+		return Integer(cast(immutable)r);
 	}
 
 	/** returns this/b. Faster, but only works if the division is exact (i.e. no rounding) */
 	Integer divExact(Integer b) const
 	{
-		auto r = create();
-		__gmpz_divexact(r, z, b.z);
-		return Integer(r);
+		auto r = new GmpInteger;
+		__gmpz_divexact(r.ptr, ptr, b.ptr);
+		return Integer(cast(immutable)r);
 	}
 
 	bool opEquals(int b) const
 	{
-		return __gmpz_cmp_si(z, b) == 0;
+		return __gmpz_cmp_si(ptr, b) == 0;
 	}
 
 	bool opEquals(Integer b) const
 	{
-		return __gmpz_cmp(z, b.z) == 0;
+		return __gmpz_cmp(ptr, b.ptr) == 0;
 	}
 
 	int opCmp(int b) const
 	{
-		return __gmpz_cmp_si(z, b);
+		return __gmpz_cmp_si(ptr, b);
 	}
 
 	int opCmp(Integer b) const
 	{
-		return __gmpz_cmp(z, b.z) == 0;
+		return __gmpz_cmp(ptr, b.ptr);
 	}
 
 	bool isPerfectSquare() const @property
 	{
-		return __gmpz_perfect_square_p(z) != 0;
+		return __gmpz_perfect_square_p(ptr) != 0;
+	}
+
+	bool isPrime() const @property
+	{
+		// 25 is the number of round suggested by the GMP manual. Error probability < 2^-50.
+		return __gmpz_probab_prime_p(ptr, 25) != 0; // 2=prime, 1=probable-prime, 0=composite
 	}
 }
 
 /** returns floor(sqrt(a)) */
 Integer isqrt(Integer a)
 {
-	auto r = Integer.create();
-	__gmpz_sqrt(r, a.z);
-	return Integer(r);
+	auto r = new GmpInteger;
+	__gmpz_sqrt(r.ptr, a.ptr);
+	return Integer(cast(immutable)r);
 }
 
 Integer gcd(Integer a, Integer b)
 {
-	auto r = Integer.create();
-	__gmpz_gcd(r, a.z, b.z);
-	return Integer(r);
+	auto r = new GmpInteger;
+	__gmpz_gcd(r.ptr, a.ptr, b.ptr);
+	return Integer(cast(immutable)r);
 }
 
 Integer gcd(Integer a, Integer b, Integer c)
 {
-	auto r = Integer.create();
-	__gmpz_gcd(r, a.z, b.z);
-	__gmpz_gcd(r, r, c.z);
-	return Integer(r);
+	auto r = new GmpInteger;
+	__gmpz_gcd(r.ptr, a.ptr, b.ptr);
+	__gmpz_gcd(r.ptr, r.ptr, c.ptr);
+	return Integer(cast(immutable)r);
 }
 
 
-package extern(C):
+/**
+ * convenience wrapper for a GMP integer
+ */
+final class GmpInteger
+{
+	mpz_t z;
+
+	inout(mpz_t)* ptr() inout @property
+	{
+		return &z;
+	}
+
+	version(count_gmp)
+	{
+		static int destructCount = 0;
+
+		static ~this()
+		{
+			import std.stdio;
+			writefln("GMP integers destructed: %s", destructCount);
+		}
+	}
+
+	this()
+	{
+		__gmpz_init(&z);
+	}
+
+	~this()
+	{
+		__gmpz_clear(&z);
+
+		version(count_gmp)
+			destructCount++;
+	}
+}
+
+
+extern(C):
 
 version(Windows)
 {
