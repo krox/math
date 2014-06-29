@@ -9,41 +9,61 @@ import jive.bitarray;
 private import std.math : log;
 private import core.bitop : bsf;
 
+
 /** generate all prime numbers below n using a simple sieve */
 Array!ulong primesBelow(ulong n)
 {
-	auto b = BitArray(cast(size_t)n/2);
-	Array!ulong primes;
-	if(n <= 10)
-		primes.reserve(4);
-	else
-		primes.reserve(cast(size_t)(n/log(n)*(1+1/log(n)+2.51/log(n)/log(n))));
+	auto b5 = BitArray(cast(size_t)n/6); // b5[k] represents 6*k+5
+	auto b7 = BitArray(cast(size_t)n/6); // b7[k] represents 6*k+7
 
-	if(n <= 2)
-		return primes;
-	primes.pushBack(2);
-	if(n <= 3)
-		return primes;
-
-	size_t k = 1;
-	for( ; /*k < n/2*/; ++k)
-		if(!b[k])
+	for(size_t k = 0; k < n/6; ++k)
+	{
+		if(!b5[k])
 		{
-			ulong p = 2*k+1;
+			ulong p = 6*k+5;
 
-			if(p*p > n)
+			if(p*p >= n)
 				break;
 
-			primes.pushBack(p);
+			for(ulong s = (p*(p+2)-5)/6; s < b5.length; s += p)
+				b5[cast(size_t)s] = true;
 
-			for(ulong s = p*p/2; s < n/2; s += p)
-				b[cast(size_t)s] = true;
+			for(ulong s = (p*p-7)/6; s < b7.length; s += p)
+				b7[cast(size_t)s] = true;
 		}
 
+		if(!b7[k])
+		{
+			ulong p = 6*k+7;
 
-	for( ; k < n/2; ++k)
-		if(!b[k])
-			primes.pushBack(2*k+1);
+			if(p*p >= n)
+				break;
+
+			for(ulong s = (p*(p+4)-5)/6; s < b5.length; s += p)
+				b5[cast(size_t)s] = true;
+
+			for(ulong s = (p*p-7)/6; s < b7.length; s += p)
+				b7[cast(size_t)s] = true;
+		}
+	}
+
+	Array!ulong primes;
+	primes.reserve(b5.count(false) + b7.count(false) + 2);
+	primes.pushBack(2);
+	primes.pushBack(3);
+
+	for(int k = 0; k < n/6; ++k)
+	{
+		if(!b5[k])
+			primes.pushBack(6*k+5);
+		if(!b7[k])
+			primes.pushBack(6*k+7);
+	}
+
+	// now we might have computed slightly more primes than requested,
+	// so we remove them again (simpler than doing it right in the beginning)
+	while(!primes.empty && primes[$-1] >= n)
+		primes.popBack;
 
 	return primes;
 }
