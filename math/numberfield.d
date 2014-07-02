@@ -14,6 +14,13 @@ struct Quadratic
 	Rational a, b;
 	Integer d;
 
+	this(int a, int b, int d)
+	{
+		this.a = a;
+		this.b = b;
+		this.d = d;
+	}
+
 	this(Rational a, Rational b, Integer d)
 	{
 		this.a = a;

@@ -57,7 +57,7 @@ private static
 {
 	enum primorialLimit = 5000;
 	GmpInteger primorial;
-	Array!ulong primesLow;
+	Array!long primesLow;
 
 	static this()
 	{

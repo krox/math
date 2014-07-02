@@ -11,16 +11,23 @@ private import core.bitop : bsf;
 
 
 /** generate all prime numbers below n using a simple sieve */
-Array!ulong primesBelow(ulong n)
+Array!long primesBelow(long n)
 {
+	if(n < 0)
+		n = 0;
+
+	if(n > size_t.max) // can only trigger on a 32 bit system
+		throw new Exception("can not calculate that many primes");
+
 	auto b5 = BitArray(cast(size_t)n/6); // b5[k] represents 6*k+5
 	auto b7 = BitArray(cast(size_t)n/6); // b7[k] represents 6*k+7
 
-	for(size_t k = 0; k < n/6; ++k)
+	for(long k = 0; k < n/6; ++k) // NOTE: using ulong triggers this strange DMD bug: issues.dlang.org/show_bug.cgi?id=13023
 	{
 		if(!b5[k])
 		{
 			ulong p = 6*k+5;
+
 
 			if(p*p >= n)
 				break;
@@ -47,12 +54,12 @@ Array!ulong primesBelow(ulong n)
 		}
 	}
 
-	Array!ulong primes;
+	Array!long primes;
 	primes.reserve(b5.count(false) + b7.count(false) + 2);
 	primes.pushBack(2);
 	primes.pushBack(3);
 
-	for(int k = 0; k < n/6; ++k)
+	for(long k = 0; k < n/6; ++k)
 	{
 		if(!b5[k])
 			primes.pushBack(6*k+5);
