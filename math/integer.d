@@ -138,9 +138,8 @@ struct Integer
 		return Integer(cast(immutable)r);
 	}
 
-	// TODO: Integer <-> int division and modulus (why are there so few *_si functions in gmp?)
-
 	Integer opBinary(string op)(int b) const
+		if(op != "%")
 	{
 		auto r = new GmpInteger;
 
@@ -165,10 +164,31 @@ struct Integer
 				throw new Exception("negative powers of integers dont exist");
 			__gmpz_pow_ui(r.ptr, ptr, b);
 		}
+		else static if(op == ">>")
+		{
+			if(b < 0)
+				throw new Exception("negative shift amounts not supported");
+			__gmpz_fdiv_q_2exp(r.ptr, ptr, b);
+		}
+		else static if(op == "<<")
+		{
+			if(b < 0)
+				throw new Exception("negative shift amounts not supported");
+			__gmpz_mul_2exp(r.ptr, ptr, b);
+		}
 
 		else static assert(false, "binary '"~op~"' is not defined");
 
 		return Integer(cast(immutable)r);
+	}
+
+	int opBinary(string op)(int b) const
+		if(op == "%")
+	{
+		if(b <= 0)
+			throw new Exception("only positive modulus is supported");
+		scope r = new GmpInteger;
+		return cast(int)__gmpz_fdiv_r_ui(r.ptr, ptr, b);
 	}
 
 	Integer opBinaryRight(string op)(int a) const
@@ -269,6 +289,105 @@ Integer gcd(Integer a, Integer b, Integer c)
 	return Integer(cast(immutable)r);
 }
 
+/** returns a^^e % m */
+Integer powMod(Integer a, Integer e, Integer m)
+{
+	auto r = new GmpInteger;
+	__gmpz_powm(r.ptr, a.ptr, e.ptr, m.ptr);
+	return Integer(cast(immutable)r);
+}
+
+Integer powMod(int a, Integer e, Integer m)
+{
+	auto r = new GmpInteger;
+	__gmpz_set_si(r.ptr, a);
+	__gmpz_powm(r.ptr, r.ptr, e.ptr, m.ptr);
+	return Integer(cast(immutable)r);
+}
+
+Integer powMod(Integer a, int e, Integer m)
+{
+	if(e < 0)
+		throw new Exception("TODO");
+	auto r = new GmpInteger;
+	__gmpz_powm_ui(r.ptr, a.ptr, e, m.ptr);
+	return Integer(cast(immutable)r);
+}
+
+int legendreSymbol(Integer a, Integer b)
+{
+	return __gmpz_legendre(a.ptr, b.ptr);
+}
+
+int legendreSymbol(int a, Integer b)
+{
+	return __gmpz_si_kronecker(a, b.ptr);
+}
+
+int legendreSymbol(Integer a, int b)
+{
+	return __gmpz_kronecker_si(a.ptr, b);
+}
+
+/**
+ * Returns an integer x between 0 and p-1 such that x^2 ≡ n (mod p).
+ * Only works for p prime. For details of the algorithm, see:
+ * http://en.wikipedia.org/wiki/Tonelli-Shanks_algorithm
+ */
+Integer sqrtMod(Integer n, Integer p)
+{
+	n = n % p;
+
+	//assert(p.isPrime);
+	//assert(p == 2 || a == 0 || kroneckerSymbol(a, p) == 1);
+
+	if(n == 0)
+		return Integer(0);
+	if(n == 1)
+		return Integer(1);
+	if(p%4 == 3)
+		return n.powMod((p+1)/4, p);
+
+	// NOTE: at this point, we already have p >= 5
+
+	// rewrite p-1 = s*2^e
+	int s = cast(int)__gmpz_scan1(p.ptr, 1);
+	auto q = p >> s; // this will round down
+
+	// find a non-square mod p
+	int z = 2;
+	while(legendreSymbol(z, p) != -1)
+		z += 1;
+	auto c = z.powMod(q, p);
+
+	// invariant: x^2 = ab (mod p)
+
+	auto r = n.powMod((q+1)/2, p);
+	auto t = n.powMod(q, p);
+	auto m = s;
+
+	while(true)
+	{
+		if(t == 1)
+			return r;
+
+		int i = 0;
+		auto t2 = t;
+		while(t2 != 1)
+		{
+			++i;
+			t2 = t2.powMod(2, p);
+		}
+
+		auto b = c;
+		for(int j = 0; j < m-i-1; ++j)
+			b = (b*b)%p;
+		r = b*r;
+		c = b*b;
+		t = c*t;
+		m = i;
+	}
+}
 
 /**
  * convenience wrapper for a GMP integer
