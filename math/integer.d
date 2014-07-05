@@ -274,6 +274,15 @@ Integer isqrt(Integer a)
 	return Integer(cast(immutable)r);
 }
 
+Integer gcd(Integer a, int b)
+{
+	auto r = new GmpInteger;
+	if(b<0)
+		b = -b;
+	__gmpz_gcd_ui(r.ptr, a.ptr, b);
+	return Integer(cast(immutable)r);
+}
+
 Integer gcd(Integer a, Integer b)
 {
 	auto r = new GmpInteger;
@@ -286,6 +295,30 @@ Integer gcd(Integer a, Integer b, Integer c)
 	auto r = new GmpInteger;
 	__gmpz_gcd(r.ptr, a.ptr, b.ptr);
 	__gmpz_gcd(r.ptr, r.ptr, c.ptr);
+	return Integer(cast(immutable)r);
+}
+
+Integer lcm(Integer a, int b)
+{
+	auto r = new GmpInteger;
+	if(b<0)
+		b = -b;
+	__gmpz_lcm_ui(r.ptr, a.ptr, b);
+	return Integer(cast(immutable)r);
+}
+
+Integer lcm(Integer a, Integer b)
+{
+	auto r = new GmpInteger;
+	__gmpz_lcm(r.ptr, a.ptr, b.ptr);
+	return Integer(cast(immutable)r);
+}
+
+Integer lcm(Integer a, Integer b, Integer c)
+{
+	auto r = new GmpInteger;
+	__gmpz_lcm(r.ptr, a.ptr, b.ptr);
+	__gmpz_lcm(r.ptr, r.ptr, c.ptr);
 	return Integer(cast(immutable)r);
 }
 
