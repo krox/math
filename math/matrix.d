@@ -3,21 +3,25 @@ module math.matrix;
 private import std.traits;
 private import std.conv : to;
 private import std.exception : assumeUnique;
+private import std.typecons;
+private import std.complex;
 
 import jive.slice;
+import jive.array;
+private import math.lapacke;
 
 struct Matrix(T)
 {
-	private Slice!(const(T),2) data; // TODO: replace "const" with "immutable"
+	private Slice!(immutable(T), 2) data;
 
-	this(Slice!(const(T),2) data)
+	this(Slice!(immutable(T), 2) data)
 	{
 		this.data = data;
 	}
 
-	this(size_t height, size_t width, const(T)[] data)
+	this(size_t height, size_t width, immutable(T)[] data)
 	{
-		this(Slice!(const(T),2)(height,width,data));
+		this(Slice!(immutable(T),2)(height,width,data));
 	}
 
 	size_t height() const @property
@@ -78,7 +82,7 @@ struct Matrix(T)
 			throw new Exception("matrix dimension mismatch");
 		T[] a = new T[width*height];
 		mixin("a[] = this.data[]"~op~"b.data[];");
-		return Matrix(height, width, a);
+		return Matrix(height, width, a.assumeUnique);
 	}
 
 	Matrix opBinary(string op)(Matrix b) const
@@ -95,7 +99,7 @@ struct Matrix(T)
 				for(size_t k = 1; k < width; ++k)
 					a[i,j] = a[i,j] + this[i,k]*b[k,j];
 			}
-		return Matrix(a.toConst);
+		return Matrix(a.assumeUnique);
 	}
 
 	Matrix pow(long exp) const
@@ -122,6 +126,77 @@ struct Matrix(T)
 			base = base * base;
 		}
 		return r;
+	}
+
+	/** solve the linear equations this * x = b */
+	Matrix solve(Matrix!T b)
+	{
+		auto n = cast(int)this.width;
+		auto nrhs = cast(int)b.width;
+		if(this.height != n || b.height != n)
+			throw new Exception("invalid matrix dimensions");
+
+		auto a = this.data.dup;
+		auto rhs = b.data.dup;
+		auto p = new int[n];
+
+		int r;
+
+		static if(is(T == float))
+			r = LAPACKE_sgesv(LAPACK_COL_MAJOR, n, nrhs, a.data.ptr, n, p.ptr, rhs.data.ptr, n);
+		else static if(is(T == double))
+			r = LAPACKE_dgesv(LAPACK_COL_MAJOR, n, nrhs, a.data.ptr, n, p.ptr, rhs.data.ptr, n);
+		else static if(is(T == Complex!float))
+			r = LAPACKE_cgesv(LAPACK_COL_MAJOR, n, nrhs, a.data.ptr, n, p.ptr, rhs.data.ptr, n);
+		else static if(is(T == Complex!double))
+			r = LAPACKE_zgesv(LAPACK_COL_MAJOR, n, nrhs, a.data.ptr, n, p.ptr, rhs.data.ptr, n);
+		else throw new Exception("unsupported matrix type");
+
+		if(r != 0)
+			throw new Exception("lapack error");
+
+		return Matrix(rhs.assumeUnique);
+	}
+
+	/** compute eigenvalues of this */
+	auto eigenvalues()
+	{
+		auto n = cast(int)this.width;
+		if(this.height != n)
+			throw new Exception("invalid matrix dimensions");
+
+		auto a = this.data.dup;
+
+		int r;
+
+		static if(is(T == float) || is(T == double))
+		{
+			auto wr = new T[n];
+			auto wi = new T[n];
+
+			static if(is(T == float))
+				r = LAPACKE_sgeev(LAPACK_COL_MAJOR, 'N', 'N', n, a.ptr, n, wr.ptr, wi.ptr, null, n, null, n);
+			static if(is(T == double))
+				r = LAPACKE_dgeev(LAPACK_COL_MAJOR, 'N', 'N', n, a.ptr, n, wr.ptr, wi.ptr, null, n, null, n);
+
+			auto w = Array!(Complex!T)(n);
+			for(int i = 0; i < n; ++i)
+				w[i] = Complex!T(wr[i], wi[i]);
+		}
+		else static if(is(T == Complex!float) || is(T == Complex!double))
+		{
+			auto w = Array!T(n);
+			static if(is(T == Complex!float))
+				r = LAPACKE_cgeev(LAPACK_COL_MAJOR, 'N', 'N', n, a.ptr, n, w.ptr, null, n, null, n);
+			static if(is(T == Complex!double))
+				r = LAPACKE_zgeev(LAPACK_COL_MAJOR, 'N', 'N', n, a.ptr, n, w.ptr, null, n, null, n);
+		}
+		else throw new Exception("unsupported matrix type");
+
+		if(r != 0)
+			throw new Exception("lapack error");
+
+		return w;
 	}
 }
 
