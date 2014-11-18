@@ -10,46 +10,25 @@ import jive.slice;
 import jive.array;
 private import math.lapacke;
 
-struct Matrix(T)
+class Matrix(T)
 {
-	private Slice!(immutable(T), 2) data;
+	abstract size_t height() const @property;
 
-	this(Slice!(immutable(T), 2) data)
-	{
-		this.data = data;
-	}
+	abstract size_t width() const @property;
 
-	this(size_t height, size_t width, immutable(T)[] data)
-	{
-		this(Slice!(immutable(T),2)(height,width,data));
-	}
+	abstract T opIndex(size_t i, size_t j) const;
 
-	size_t height() const @property
-	{
-		return data.size[0];
-	}
-
-	size_t width() const @property
-	{
-		return data.size[1];
-	}
-
-	T opIndex(size_t i, size_t j) const
-	{
-		return data[i,j];
-	}
-
-	T opIndex(size_t i) const
+	final T opIndex(size_t i) const
 	{
 		if(width == 1)
-			return data[i,0];
+			return this[i,0];
 		if(height == 1)
-			return data[0,i];
+			return this[0,i];
 
 		throw new Exception("not a vector");
 	}
 
-	string toString() const @property
+	final override string toString() const @property
 	{
 		string s;
 		for(size_t i = 0; i < height; ++i)
@@ -75,17 +54,22 @@ struct Matrix(T)
 		return s;
 	}
 
-	Matrix opBinary(string op)(Matrix b) const
+	final Matrix opBinary(string op)(Matrix b) const
 		if(op == "+" || op == "-")
 	{
 		if(width != b.width || height != b.height)
 			throw new Exception("matrix dimension mismatch");
-		T[] a = new T[width*height];
-		mixin("a[] = this.data[]"~op~"b.data[];");
+
+		auto a = Slice!(T,2)(height, b.width);
+		for(size_t i = 0; i < height; ++i)
+			for(size_t j = 0; j < b.width; ++j)
+			{
+				a[i,j] = mixin("this[i,j] "~op~" b[i,j]");
+			}
 		return Matrix(height, width, a.assumeUnique);
 	}
 
-	Matrix opBinary(string op)(Matrix b) const
+	final Matrix opBinary(string op)(Matrix b) const
 		if(op == "*")
 	{
 		if(width != b.height)
@@ -102,7 +86,7 @@ struct Matrix(T)
 		return Matrix(a.assumeUnique);
 	}
 
-	Matrix pow(long exp) const
+	final Matrix pow(long exp)
 	{
 		assert(width > 0);
 		if(width != height)
@@ -129,15 +113,67 @@ struct Matrix(T)
 	}
 
 	/** solve the linear equations this * x = b */
-	Matrix solve(Matrix!T b)
+	abstract Matrix solve(Matrix!T b);
+
+	/** compute eigenvalues of this */
+	static if(is(T == float) || is(T == double))
+		abstract Array!(Complex!T) eigenvalues();
+	static if(is(T == Complex!float) || is(T == Complex!double))
+		abstract Array!T eigenvalues();
+
+	static auto opCall(Slice!(immutable(T), 2) data)
+	{
+		return new DenseMatrix!T(data);
+	}
+
+	static auto opCall(size_t height, size_t width, immutable(T)[] data)
+	{
+		return new DenseMatrix!T(Slice!(immutable(T), 2)(height, width, data));
+	}
+
+	Slice!(T, 2) dup() const @property
+	{
+		auto r = Slice!(T,2)(height, width);
+		foreach(i,j, ref x; r)
+			x = this[i,j];
+		return r;
+	}
+}
+
+final class DenseMatrix(T) : Matrix!T
+{
+	private Slice!(immutable(T), 2) data;
+
+	this(Slice!(immutable(T), 2) data)
+	{
+		this.data = data;
+	}
+
+	override size_t height() const @property
+	{
+		return data.size[0];
+	}
+
+	override size_t width() const @property
+	{
+		return data.size[1];
+	}
+
+	override T opIndex(size_t i, size_t j) const
+	{
+		return data[i,j];
+	}
+
+	/** solve the linear equations this * x = b */
+	override Matrix!T solve(Matrix!T b)
 	{
 		auto n = cast(int)this.width;
 		auto nrhs = cast(int)b.width;
 		if(this.height != n || b.height != n)
 			throw new Exception("invalid matrix dimensions");
 
-		auto a = this.data.dup;
-		auto rhs = b.data.dup;
+		auto a = this.dup;
+		auto rhs = b.dup;
 		auto p = new int[n];
 
 		int r;
@@ -155,48 +191,64 @@ struct Matrix(T)
 		if(r != 0)
 			throw new Exception("lapack error");
 
-		return Matrix(rhs.assumeUnique);
+		return Matrix!T(rhs.assumeUnique);
 	}
 
-	/** compute eigenvalues of this */
-	auto eigenvalues()
+
+	static if(is(T == float) || is(T == double))
 	{
-		auto n = cast(int)this.width;
-		if(this.height != n)
-			throw new Exception("invalid matrix dimensions");
-
-		auto a = this.data.dup;
-
-		int r;
-
-		static if(is(T == float) || is(T == double))
+		/** compute eigenvalues of this */
+		override Array!(Complex!T) eigenvalues()
 		{
-			auto wr = new T[n];
-			auto wi = new T[n];
+			auto n = cast(int)this.width;
+			if(this.height != n)
+				throw new Exception("invalid matrix dimensions");
+
+			auto a = this.data.dup; // lapack uses this as workspace, so we need a fresh copy
+
+			auto wr = new T[n]; // real part of eigenvalues
+			auto wi = new T[n]; // imaginary part of eigenvalues
 
 			static if(is(T == float))
-				r = LAPACKE_sgeev(LAPACK_COL_MAJOR, 'N', 'N', n, a.ptr, n, wr.ptr, wi.ptr, null, n, null, n);
-			static if(is(T == double))
-				r = LAPACKE_dgeev(LAPACK_COL_MAJOR, 'N', 'N', n, a.ptr, n, wr.ptr, wi.ptr, null, n, null, n);
+				int r = LAPACKE_sgeev(LAPACK_COL_MAJOR, 'N', 'N', n, a.ptr, n, wr.ptr, wi.ptr, null, n, null, n);
+			else static if(is(T == double))
+				int r = LAPACKE_dgeev(LAPACK_COL_MAJOR, 'N', 'N', n, a.ptr, n, wr.ptr, wi.ptr, null, n, null, n);
+			else static assert(false);
+
+			if(r != 0)
+				throw new Exception("lapack error");
 
 			auto w = Array!(Complex!T)(n);
 			for(int i = 0; i < n; ++i)
 				w[i] = Complex!T(wr[i], wi[i]);
+			return w;
 		}
-		else static if(is(T == Complex!float) || is(T == Complex!double))
+	}
+
+	static if(is(T == Complex!float) || is(T == Complex!double))
+	{
+		/** compute eigenvalues of this */
+		override Array!T eigenvalues()
 		{
+			auto n = cast(int)this.width;
+			if(this.height != n)
+				throw new Exception("invalid matrix dimensions");
+
+			auto a = this.data.dup;
+
 			auto w = Array!T(n);
+
 			static if(is(T == Complex!float))
-				r = LAPACKE_cgeev(LAPACK_COL_MAJOR, 'N', 'N', n, a.ptr, n, w.ptr, null, n, null, n);
-			static if(is(T == Complex!double))
-				r = LAPACKE_zgeev(LAPACK_COL_MAJOR, 'N', 'N', n, a.ptr, n, w.ptr, null, n, null, n);
+				int r = LAPACKE_cgeev(LAPACK_COL_MAJOR, 'N', 'N', n, a.ptr, n, w.ptr, null, n, null, n);
+			else static if(is(T == Complex!double))
+				int r = LAPACKE_zgeev(LAPACK_COL_MAJOR, 'N', 'N', n, a.ptr, n, w.ptr, null, n, null, n);
+			else static assert(false);
+
+			if(r != 0)
+				throw new Exception("lapack error");
+
+			return w;
 		}
-		else throw new Exception("unsupported matrix type");
-
-		if(r != 0)
-			throw new Exception("lapack error");
-
-		return w;
 	}
 }
 
