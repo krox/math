@@ -116,10 +116,8 @@ class Matrix(T)
 	abstract Matrix solve(Matrix!T b);
 
 	/** compute eigenvalues of this */
-	static if(is(T == float) || is(T == double))
-		abstract Array!(Complex!T) eigenvalues();
-	static if(is(T == Complex!float) || is(T == Complex!double))
-		abstract Array!T eigenvalues();
+	abstract Array!(ComplexType!T) eigenvalues();
+	abstract Array!(RealType!T) hermitianEigenvalues();
 
 	static auto opCall(Slice!(immutable(T), 2) data)
 	{
@@ -178,14 +176,10 @@ final class DenseMatrix(T) : Matrix!T
 
 		int r;
 
-		static if(is(T == float))
-			r = LAPACKE_sgesv(LAPACK_COL_MAJOR, n, nrhs, a.data.ptr, n, p.ptr, rhs.data.ptr, n);
-		else static if(is(T == double))
-			r = LAPACKE_dgesv(LAPACK_COL_MAJOR, n, nrhs, a.data.ptr, n, p.ptr, rhs.data.ptr, n);
-		else static if(is(T == Complex!float))
-			r = LAPACKE_cgesv(LAPACK_COL_MAJOR, n, nrhs, a.data.ptr, n, p.ptr, rhs.data.ptr, n);
-		else static if(is(T == Complex!double))
-			r = LAPACKE_zgesv(LAPACK_COL_MAJOR, n, nrhs, a.data.ptr, n, p.ptr, rhs.data.ptr, n);
+		     static if(is(T == float))          r = LAPACKE_sgesv(LAPACK_COL_MAJOR, n, nrhs, a.data.ptr, n, p.ptr, rhs.data.ptr, n);
+		else static if(is(T == double))         r = LAPACKE_dgesv(LAPACK_COL_MAJOR, n, nrhs, a.data.ptr, n, p.ptr, rhs.data.ptr, n);
+		else static if(is(T == Complex!float))  r = LAPACKE_cgesv(LAPACK_COL_MAJOR, n, nrhs, a.data.ptr, n, p.ptr, rhs.data.ptr, n);
+		else static if(is(T == Complex!double)) r = LAPACKE_zgesv(LAPACK_COL_MAJOR, n, nrhs, a.data.ptr, n, p.ptr, rhs.data.ptr, n);
 		else throw new Exception("unsupported matrix type");
 
 		if(r != 0)
@@ -195,60 +189,141 @@ final class DenseMatrix(T) : Matrix!T
 	}
 
 
-	static if(is(T == float) || is(T == double))
+
+	/** compute (complex) eigenvalues of this */
+	override Array!(ComplexType!T) eigenvalues()
 	{
-		/** compute eigenvalues of this */
-		override Array!(Complex!T) eigenvalues()
-		{
-			auto n = cast(int)this.width;
-			if(this.height != n)
-				throw new Exception("invalid matrix dimensions");
+		auto n = cast(int)this.width;
+		if(this.height != n)
+			throw new Exception("invalid matrix dimensions");
 
-			auto a = this.data.dup; // lapack uses this as workspace, so we need a fresh copy
+		auto a = this.data.dup;
+		auto w = Array!(ComplexType!T)(n);
+		int r;
 
-			auto wr = new T[n]; // real part of eigenvalues
-			auto wi = new T[n]; // imaginary part of eigenvalues
+		     static if(is(T == float))       r = my_LAPACKE_sgeev(LAPACK_COL_MAJOR, 'N', 'N', n, a.ptr, n, w.ptr, null, n, null, n);
+		else static if(is(T == double))	     r = my_LAPACKE_dgeev(LAPACK_COL_MAJOR, 'N', 'N', n, a.ptr, n, w.ptr, null, n, null, n);
+		else static if(is(T == Complex!float))  r = LAPACKE_cgeev(LAPACK_COL_MAJOR, 'N', 'N', n, a.ptr, n, w.ptr, null, n, null, n);
+		else static if(is(T == Complex!double)) r = LAPACKE_zgeev(LAPACK_COL_MAJOR, 'N', 'N', n, a.ptr, n, w.ptr, null, n, null, n);
+		else throw new Exception("unsupported matrix type");
 
-			static if(is(T == float))
-				int r = LAPACKE_sgeev(LAPACK_COL_MAJOR, 'N', 'N', n, a.ptr, n, wr.ptr, wi.ptr, null, n, null, n);
-			else static if(is(T == double))
-				int r = LAPACKE_dgeev(LAPACK_COL_MAJOR, 'N', 'N', n, a.ptr, n, wr.ptr, wi.ptr, null, n, null, n);
-			else static assert(false);
+		if(r != 0)
+			throw new Exception("lapack error");
 
-			if(r != 0)
-				throw new Exception("lapack error");
-
-			auto w = Array!(Complex!T)(n);
-			for(int i = 0; i < n; ++i)
-				w[i] = Complex!T(wr[i], wi[i]);
-			return w;
-		}
+		return w;
 	}
 
-	static if(is(T == Complex!float) || is(T == Complex!double))
+	/** compute (real) eigenvalues of this assuming matrix is hermitian */
+	override Array!(RealType!T) hermitianEigenvalues()
 	{
-		/** compute eigenvalues of this */
-		override Array!T eigenvalues()
-		{
-			auto n = cast(int)this.width;
-			if(this.height != n)
-				throw new Exception("invalid matrix dimensions");
+		auto n = cast(int)this.width;
+		if(this.height != n)
+			throw new Exception("invalid matrix dimensions");
 
-			auto a = this.data.dup;
+		auto a = this.data.dup;
+		auto w = Array!(RealType!T)(n);
+		int r;
 
-			auto w = Array!T(n);
+		     static if(is(T == float))          r = LAPACKE_ssyev(LAPACK_COL_MAJOR, 'N', 'U', n, a.ptr, n, w.ptr);
+		else static if(is(T == double))         r = LAPACKE_dsyev(LAPACK_COL_MAJOR, 'N', 'U', n, a.ptr, n, w.ptr);
+		else static if(is(T == Complex!float))  r = LAPACKE_cheev(LAPACK_COL_MAJOR, 'N', 'U', n, a.ptr, n, w.ptr);
+		else static if(is(T == Complex!double)) r = LAPACKE_zheev(LAPACK_COL_MAJOR, 'N', 'U', n, a.ptr, n, w.ptr);
+		else throw new Exception("unsupported matrix type");
 
-			static if(is(T == Complex!float))
-				int r = LAPACKE_cgeev(LAPACK_COL_MAJOR, 'N', 'N', n, a.ptr, n, w.ptr, null, n, null, n);
-			else static if(is(T == Complex!double))
-				int r = LAPACKE_zgeev(LAPACK_COL_MAJOR, 'N', 'N', n, a.ptr, n, w.ptr, null, n, null, n);
-			else static assert(false);
+		if(r != 0)
+			throw new Exception("lapack error");
 
-			if(r != 0)
-				throw new Exception("lapack error");
+		return w;
+	}
+}
 
-			return w;
-		}
+/** efficient storage of a square band matrix */
+final class BandMatrix(T) : Matrix!T
+{
+	const int kl, ku; // number of sub/super-diagonals
+
+	private Slice!(immutable(T), 2) data;
+
+	this(int kl, int ku, Slice!(immutable(T), 2) data)
+	{
+		this.data = data;
+		this.kl = kl;
+		this.ku = ku;
+
+		if(kl+ku+1 != data.size[0] || kl >= height || ku >= height)
+			throw new Exception("invalid dimensions of band matrix");
+	}
+
+	override size_t height() const @property
+	{
+		return data.size[1]; // width == height
+	}
+
+	override size_t width() const @property
+	{
+		return data.size[1];
+	}
+
+	override T opIndex(size_t i, size_t j) const
+	{
+		if(i+ku < j || i > j+kl)
+			return T(0);
+
+		return data[i-j+ku,j];
+	}
+
+	/** solve the linear equations this * x = b */
+	override Matrix!T solve(Matrix!T b)
+	{
+		auto n = cast(int)this.width;
+		auto nrhs = cast(int)b.width;
+		if(this.height != n || b.height != n)
+			throw new Exception("invalid matrix dimensions");
+
+		auto a = this.data.dup;
+		auto rhs = b.dup;
+		auto p = new int[n];
+		int r;
+
+		     static if(is(T == float))          r = LAPACKE_sgbsv(LAPACK_COL_MAJOR, n, kl, ku, nrhs, a.data.ptr, 1+kl+ku, p.ptr, rhs.data.ptr, n);
+		else static if(is(T == double))         r = LAPACKE_dgbsv(LAPACK_COL_MAJOR, n, kl, ku, nrhs, a.data.ptr, 1+kl+ku, p.ptr, rhs.data.ptr, n);
+		else static if(is(T == Complex!float))  r = LAPACKE_cgbsv(LAPACK_COL_MAJOR, n, kl, ku, nrhs, a.data.ptr, 1+kl+ku, p.ptr, rhs.data.ptr, n);
+		else static if(is(T == Complex!double)) r = LAPACKE_zgbsv(LAPACK_COL_MAJOR, n, kl, ku, nrhs, a.data.ptr, 1+kl+ku, p.ptr, rhs.data.ptr, n);
+		else throw new Exception("unsupported matrix type");
+
+		if(r != 0)
+			throw new Exception("lapack error");
+
+		return Matrix!T(rhs.assumeUnique);
+	}
+
+	/** compute (complex) eigenvalues of this */
+	override Array!(ComplexType!T) eigenvalues()
+	{
+		throw new Exception("non-symmetric eigenvalues on band matrices not supported");
+	}
+
+	/** compute (real) eigenvalues of this, assuming matrix is hermitian */
+	override Array!(RealType!T) hermitianEigenvalues()
+	{
+		auto n = cast(int)this.width;
+		if(this.height != n)
+			throw new Exception("invalid matrix dimensions");
+
+		auto a = this.data.dup;
+		auto w = Array!(RealType!T)(n);
+		int r;
+
+	         static if(is(T == float))          r = LAPACKE_ssbev(LAPACK_COL_MAJOR, 'N', 'U', n, ku, a.ptr, 1+kl+ku, w.ptr, null, n);
+		else static if(is(T == double))         r = LAPACKE_dsbev(LAPACK_COL_MAJOR, 'N', 'U', n, ku, a.ptr, 1+kl+ku, w.ptr, null, n);
+		else static if(is(T == Complex!float))  r = LAPACKE_chbev(LAPACK_COL_MAJOR, 'N', 'U', n, ku, a.ptr, 1+kl+ku, w.ptr, null, n);
+		else static if(is(T == Complex!double)) r = LAPACKE_zhbev(LAPACK_COL_MAJOR, 'N', 'U', n, ku, a.ptr, 1+kl+ku, w.ptr, null, n);
+		else throw new Exception("unsupported matrix type");
+
+		if(r != 0)
+			throw new Exception("lapack error");
+
+		return w;
 	}
 }
 
