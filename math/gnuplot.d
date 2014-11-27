@@ -2,6 +2,7 @@ module math.gnuplot;
 
 private import std.stdio;
 private import std.range;
+private import std.functional;
 
 class Gnuplot
 {
@@ -14,19 +15,34 @@ class Gnuplot
 	 */
 	this(bool persist = true)
 	{
-
-		pipe.popen("gnuplot", "w");
+		if(persist)
+			pipe.popen("gnuplot -p", "w");
+		else
+			pipe.popen("gnuplot", "w");
 		pipe.writef("set output\n");
 		pipe.writef("set terminal x11\n");
 		pipe.flush();
 	}
 
-	/** plot a function. Example: plot("sin(x)") */
+	/** plot a function given py a string that gnuplot can understand. Example: plot("sin(x)") */
 	void plot(string fun, string title = null)
 	{
 		pipe.writef("%s %s title \"%s\"\n", nplots?"replot":"plot", fun, title?title:fun);
 		++nplots;
 		pipe.flush();
+	}
+
+	/** plot a function, given as a double->double function */
+	void plot(alias fun)(double a, double b, int n = 100, string title = null)
+	{
+		auto xs = new double[n];
+		auto ys = new double[n];
+		for(int i = 0; i < n; ++i)
+		{
+			xs[i] = a + (b-a)/(n-1)*i;
+			ys[i] = unaryFun!(fun,"x")(xs[i]);
+		}
+		plot(xs[], ys[], title);
 	}
 
 	/** plot raw data points */
