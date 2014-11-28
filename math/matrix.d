@@ -5,6 +5,8 @@ private import std.conv : to;
 private import std.exception : assumeUnique;
 private import std.typecons;
 private import std.complex;
+private import std.functional : binaryFun;
+private import std.algorithm : min, max;
 
 import jive.slice;
 import jive.array;
@@ -127,6 +129,54 @@ class Matrix(T)
 	static auto opCall(size_t height, size_t width, immutable(T)[] data)
 	{
 		return new DenseMatrix!T(Slice!(immutable(T), 2)(height, width, data));
+	}
+
+	static auto build(alias fun)(size_t h, size_t w)
+	{
+		auto data = Slice!(T, 2)(h, w);
+		for(size_t j = 0; j < w; ++j)
+			for(size_t i = 0; i < h; ++i)
+				data[i,j] = binaryFun!(fun,"i","j")(i, j);
+		return new DenseMatrix!T(data.assumeUnique);
+	}
+
+	/** only explicitly genrates upper/right half */
+	static auto buildSymmetric(alias fun)(size_t n)
+	{
+		auto data = Slice!(T, 2)(n, n);
+		for(size_t j = 0; j < n; ++j)
+			for(size_t i = 0; i <= j; ++i)
+			{
+				data[i,j] = binaryFun!(fun,"i","j")(i, j);
+				if(i != j)
+					data[j,i] = data[i,j];
+			}
+		return new DenseMatrix!T(data.assumeUnique);
+	}
+
+	static auto buildBand(alias fun)(size_t n, int kl, int ku)
+	{
+		assert(kl >= 0 && ku >= 0);
+		auto data = Slice!(T, 2)(kl+ku+1, n);
+		for(size_t j = 0; j < n; ++j)
+			for(size_t i = max(ku,j)-ku; i <= min(n-1,j+kl); ++i)
+				data[i+ku-j,j] = binaryFun!(fun,"i","j")(i, j);
+		return new BandMatrix!T(kl, ku, data.assumeUnique);
+	}
+
+	/** only explicitly genrates upper/right half */
+	static auto buildSymmetricBand(alias fun)(size_t n, int kd)
+	{
+		assert(kd >= 0);
+		auto data = Slice!(T, 2)(2*kd+1, n);
+		for(size_t j = 0; j < n; ++j)
+			for(size_t i = max(kd,j)-kd; i <= j; ++i)
+			{
+				data[i+kd-j,j] = binaryFun!(fun,"i","j")(i, j);
+				if(i != j)
+					data[j+kd-i, i] = data[i+kd-j, j];
+			}
+		return new BandMatrix!T(kd, kd, data.assumeUnique);
 	}
 
 	Slice!(T, 2) dup() const @property
