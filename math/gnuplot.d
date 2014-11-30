@@ -83,6 +83,24 @@ class Gnuplot
 		pipe.flush();
 	}
 
+	void setLogScaleX()
+	{
+		pipe.writef("set logscale x\n");
+		pipe.flush();
+	}
+
+	void setLogScaleY()
+	{
+		pipe.writef("set logscale y\n");
+		pipe.flush();
+	}
+
+	void setLogScaleZ()
+	{
+		pipe.writef("set logscale z\n");
+		pipe.flush();
+	}
+
 	void clear()
 	{
 		pipe.writef("clear\n");
