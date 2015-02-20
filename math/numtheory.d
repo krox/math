@@ -13,10 +13,14 @@ import jive.array;
 import jive.bitarray;
 private import std.math : log, sqrt;
 private import core.bitop : bsf;
+private import std.typetuple;
+private import std.typecons;
+private import std.algorithm;
+private import std.exception;
 
 
 /** generate all prime numbers below n using a simple sieve */
-Array!long primesBelow(long n)
+Array!long calculatePrimesBelow(long n)
 {
 	if(n < 0)
 		n = 0;
@@ -85,6 +89,32 @@ Array!long primesBelow(long n)
 		primes.popBack;
 
 	return primes;
+}
+
+immutable(long)[] primesBelow(long n)
+{
+	static immutable(long)[] cache;
+	static long limit = 2;
+
+	if(n > limit)
+	{
+		limit = max(n, limit+limit/2);
+		cache = assumeUnique(cast(long[])calculatePrimesBelow(limit));
+	}
+
+	size_t a=0, b=cache.length;
+
+	while (a != b)
+	{
+		size_t m = (a+b)/2;
+
+		if (cache[m] < n)
+			a = m+1;
+		else
+			b = m;
+	}
+
+	return cache[0..a];
 }
 
 /**
@@ -246,7 +276,7 @@ bool isPrime(long n) //pure
 		    && isSPRP(   56_928_287, n);
 
 	if(n < 105_936_894_253)
-		return isSPRP(2, n)
+		return isSPRP(            2, n)
 		    && isSPRP(1_005_905_886, n)
 		    && isSPRP(1_340_600_841, n);
 
@@ -265,4 +295,119 @@ bool isPrime(long n) //pure
 
 
 	throw new Exception("number to high for prime testing");
+}
+
+/**
+ * factorize a number using simple trial division.
+ */
+Array!(Tuple!(long,int)) factor(long n)
+{
+	if(n <= 0)
+		throw new Exception("can only factor positive numbers");
+
+	auto limit = cast(long)sqrt(cast(double)n)+1;
+	assert(limit*limit > n);
+
+	Array!(Tuple!(long,int)) f;
+
+	foreach(long p; primesBelow(limit))
+	{
+		if(p*p > n)
+			break;
+		int c = 0;
+		while(n%p == 0)
+		{
+			n /= p;
+			++c;
+		}
+
+		if(c)
+			f.pushBack(tuple(p, c));
+	}
+
+	if(n != 1)
+	{
+		assert(isPrime(n));
+		f.pushBack(tuple(n, 1));
+	}
+
+	return f;
+}
+
+/**
+ * ditto
+ */
+Array!long primeFactors(long n)
+{
+	if(n <= 0)
+		throw new Exception("can only factor positive numbers");
+
+	auto limit = cast(long)sqrt(cast(double)n)+1;
+	assert(limit*limit > n);
+
+	Array!long f;
+
+	foreach(long p; primesBelow(limit))
+	{
+		if(p*p > n)
+			break;
+		if(n%p == 0)
+		{
+			do
+			{
+				n /= p;
+			}
+			while(n%p == 0);
+			f.pushBack(p);
+		}
+	}
+
+	if(n != 1)
+	{
+		assert(isPrime(n));
+		f.pushBack(n);
+	}
+
+	return f;
+}
+
+/**
+ * Euler's totient function.
+ */
+long phi(long n)
+{
+	foreach(p; primeFactors(n))
+		n = n/p*(p-1);
+	return n;
+}
+
+/**
+ * Find the smallest primitive root modulo n. A root exists whenever n is
+ * 1, 2 or 4 or is of the form p^i or 2*p^i for p an odd prime.
+ */
+long primitiveRoot(long n)
+{
+	import std.stdio;
+
+	if(n <= 1)
+		throw new Exception("invalid modulus");
+	if(n == 2)
+		return 1;
+
+	auto p = phi(n);
+	auto fs = primeFactors(p);
+
+	outer: for(long x = 2; x < n; ++x)
+	{
+		if(gcd(x,n) != 1)
+			continue outer;
+
+		foreach(f; fs)
+			if(powmod(x, p/f, n) == 1)
+				continue outer;
+
+		return x;
+	}
+
+	throw new Exception("no primitive root found");
 }
