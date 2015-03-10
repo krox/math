@@ -32,6 +32,16 @@ class Matrix(T)
 	final override string toString() const @property
 	{
 		string s;
+		auto strings = Array2!string(height, width);
+		auto pitch = Array!size_t(width, 0);
+
+		for(size_t i = 0; i < height; ++i)
+			for(size_t j = 0; j < width; ++j)
+			{
+				strings[i,j] = to!string(this[i,j]);
+				pitch[j] = max(pitch[j], strings[i,j].length);
+			}
+
 		for(size_t i = 0; i < height; ++i)
 		{
 			if(i == 0)
@@ -43,7 +53,11 @@ class Matrix(T)
 
 
 			for(size_t j = 0; j < width; ++j)
-				s ~= to!string(this[i,j]) ~ " ";
+			{
+				s ~= strings[i,j];
+				for(int k = 0; k < pitch[j]+1-strings[i,j].length; ++k)
+					s ~= " ";
+			}
 
 			if(i == 0)
 				s ~= "⎞\n";

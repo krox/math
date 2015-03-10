@@ -65,7 +65,10 @@ struct Rational
 
 	string toString() const @property
 	{
-		return num.toString ~ "/" ~ denom.toString;
+		if(denom == 1)
+			return num.toString;
+		else
+			return num.toString ~ "/" ~ denom.toString;
 	}
 
 	/** return -1 / 0 / +1, faster than actual compare */
