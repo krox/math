@@ -8,8 +8,13 @@ extern(C):
 enum LAPACK_ROW_MAJOR = 101;
 enum LAPACK_COL_MAJOR = 102;
 
-alias ComplexType(T:Complex!T) = Complex!T;
-alias ComplexType(T) = Complex!T;
+template ComplexType(T)
+{
+	static if(is(Complex!T))
+		alias ComplexType = Complex!T;
+	else
+		alias ComplexType = T;
+}
 
 alias RealType(T:Complex!T) = T;
 alias RealType(T) = T;

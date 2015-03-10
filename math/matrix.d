@@ -67,7 +67,7 @@ class Matrix(T)
 			{
 				a[i,j] = mixin("this[i,j] "~op~" b[i,j]");
 			}
-		return Matrix(height, width, a.assumeUnique);
+		return Matrix(a.assumeUnique);
 	}
 
 	final Matrix opBinary(string op)(Matrix b) const
@@ -117,26 +117,24 @@ class Matrix(T)
 	Matrix!T solve(Matrix!T b)
 	{
 		auto n = cast(int)this.width;
-		auto nrhs = cast(int)b.width;
 		if(this.height != n || b.height != n)
 			throw new Exception("invalid matrix dimensions");
 
-		auto a = this.dup;
 		auto rhs = b.dup;
-		auto p = new int[n];
-
-		int r;
-
-		     static if(is(T == float))          r = LAPACKE_sgesv(LAPACK_COL_MAJOR, n, nrhs, a.ptr, n, p.ptr, rhs.ptr, n);
-		else static if(is(T == double))         r = LAPACKE_dgesv(LAPACK_COL_MAJOR, n, nrhs, a.ptr, n, p.ptr, rhs.ptr, n);
-		else static if(is(T == Complex!float))  r = LAPACKE_cgesv(LAPACK_COL_MAJOR, n, nrhs, a.ptr, n, p.ptr, rhs.ptr, n);
-		else static if(is(T == Complex!double)) r = LAPACKE_zgesv(LAPACK_COL_MAJOR, n, nrhs, a.ptr, n, p.ptr, rhs.ptr, n);
-		else throw new Exception("unsupported matrix type");
-
-		if(r != 0)
-			throw new Exception("lapack error");
-
+		matSolve!T(this.dup, rhs);
 		return Matrix!T(rhs.assumeUnique);
+	}
+
+	/** compute (a base of) the null-space of this */
+	Matrix!T nullSpace()
+	{
+		return Matrix!T(matNullSpace!T(this.dup).assumeUnique);
+	}
+
+	/** compute (a base of) the eigen-space of an eigenvalue lambda */
+	Matrix!T eigenSpace(T lambda)
+	{
+		return Matrix!T(matEigenSpace!T(this.dup, lambda).assumeUnique);
 	}
 
 	/** compute (complex) eigenvalues of this */
@@ -252,8 +250,13 @@ class Matrix(T)
 	}
 }
 
+/**
+ * simple storage of a (possibly non-square) matrix.
+ * column major order in a contigous array.
+ */
 final class DenseMatrix(T) : Matrix!T
 {
+	// TODO: decide if this should be Array2 instead of Slice2
 	private Slice2!(immutable(T)) data;
 
 	this(Slice2!(immutable(T)) data)
@@ -367,6 +370,164 @@ final class BandMatrix(T) : Matrix!T
 	}
 }
 
+/**
+ * gauss a (possibly non-square) matrix.
+ * afterwards column i has pivot in row r[i] (or r[i] = -1)
+ */
+Array!int matGauss(T)(Slice2!T m, Slice2!T b)
+{
+	assert(m.size[0] == b.size[0]);
+
+	auto p = Array!int(m.size[0], -1); // "column i has pivot in row p[i]"
+
+	for(int row = 0; row < m.size[0]; ++row)
+	{
+		// find a non-zero column to use as pivot
+		int col = 0;
+		while(col < m.size[1] && m[row,col] == 0)
+			++col;
+		if(col >= m.size[1]) // row is zero
+			continue;
+		p[col] = row;
+
+		// normalize the row
+		auto inv = 1/m[row,col];
+		for(int i = 0; i < m.size[1]; ++i)
+			m[row,i] = m[row,i] * inv;
+		for(int i = 0; i < b.size[1]; ++i)
+			b[row,i] = b[row,i] * inv;
+
+		// substract it from every other row
+		for(int i = 0; i < m.size[0]; ++i)
+			if(i != row)
+			{
+				auto f = m[i,col];
+				if(f == 0)
+					continue;
+				for(int j = 0; j < m.size[1]; ++j)
+					m[i,j] = m[i,j] - f*m[row,j];
+				for(int j = 0; j < b.size[1]; ++j)
+					b[i,j] = b[i,j] - f*b[row,j];
+			}
+	}
+
+	return p;
+}
+
+/**
+ * backend for solving linear equations m*x = b.
+ * m gets destroyed, result is stored into b.
+ * currently only implemented for m square and invertible
+ * uses lapack for float/double, and simple gauss for everything else
+ * (which is only appropriate for exact types)
+ */
+void matSolve(T)(Slice2!T m, Slice2!T b)
+	if(isFloatingPoint!(RealType!T))
+{
+	auto p = new int[n];
+	int r;
+
+	static if(is(T == float))
+		r = LAPACKE_sgesv(LAPACK_COL_MAJOR, n, nrhs, a.ptr, n, p.ptr, b.ptr, n);
+	else static if(is(T == double))
+		r = LAPACKE_dgesv(LAPACK_COL_MAJOR, n, nrhs, a.ptr, n, p.ptr, b.ptr, n);
+	else static if(is(T == Complex!float))
+		r = LAPACKE_cgesv(LAPACK_COL_MAJOR, n, nrhs, a.ptr, n, p.ptr, b.ptr, n);
+	else static if(is(T == Complex!double))
+		r = LAPACKE_zgesv(LAPACK_COL_MAJOR, n, nrhs, a.ptr, n, p.ptr, b.ptr, n);
+	else throw new Exception("unsupported matrix type");
+
+	if(r != 0)
+		throw new Exception("lapack error");
+}
+
+/** ditto */
+void matSolve(T)(Slice2!T m, Slice2!T b)
+	if(!isFloatingPoint!(RealType!T))
+{
+	int n = cast(int)m.size[0];
+	int nrhs = cast(int)b.size[1];
+	assert(m.size[1] == n && b.size[0] == n);
+
+	// gauss the matrix and check it is not singular
+	auto p = matGauss!T(m, b);
+	foreach(x; p)
+		if(x == -1)
+			throw new Exception("matrix not invertible");
+
+	// permute rhs according to b[i] = b[p2[i]]
+	for(int start = 0; start < n; ++start)
+	{
+		// nothing to do or already done
+		if(p[start] == start || p[start] == -1)
+			continue;
+
+		// permute the cycle
+		for(int j = 0; j < nrhs; ++j)
+		{
+			T tmp = b[start, j];
+			int i;
+			for(i = start; p[i] != start; i = p[i])
+				b[i,j] = b[p[i],j];
+			b[i,j] = tmp;
+		}
+
+		// mark the cycle as done
+		for(int i = start; i != -1; )
+		{
+			int t = p[i];
+			p[i] = -1;
+			i = t;
+		}
+	}
+}
+
+/**
+ * backend for computing the nullspace of a matrix.
+ * m gets destroyed, result is newly allocated.
+ * uses simple gauss, so it is only suitable for exact types
+ */
+Slice2!T matNullSpace(T)(Slice2!T m)
+{
+	// gauss which does the actual work
+	auto p = matGauss!T(m, Slice2!T(m.size[0],0,null));
+
+	// count zero-rows, which is equal to the dimension of the nullspace
+	int d = 0;
+	for(int col = 0; col < m.size[1]; ++col)
+		if(p[col] == -1)
+			++d;
+
+	// extract nullspace-base from columns that do not contain a pivot
+	auto ns = Slice2!T(m.size[1], d, T(0));
+	int k = 0;
+	for(int col = 0; col < m.size[1]; ++col)
+		if(p[col] == -1)
+		{
+			ns[col,k] = T(1);
+			for(int c = 0; c < m.size[1]; ++c)
+				if(p[c] != -1)
+					ns[c,k] = -m[p[c],col];
+			++k;
+		}
+
+	return ns;
+}
+
+/**
+ * backend for computing an eigenspace of a matrix.
+ * m gets destroyed, result is newly allocated.
+ * uses simple gauss, so it is only suitable for exact types
+ */
+Slice2!T matEigenSpace(T)(Slice2!T m, T lambda)
+{
+	if(m.size[0] != m.size[1])
+		throw new Exception("there is no eigenspace of a non-square matrix");
+
+	for(int i = 0; i < m.size[0]; ++i)
+		m[i,i] = m[i,i] - lambda;
+	return matNullSpace!T(m);
+}
 
 struct Mat(T, size_t N, size_t M)
 {
