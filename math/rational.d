@@ -63,8 +63,6 @@ struct Rational
 		assert(false, "FIXME");
 	}
 
-	// NOTE: copy constructor and destructor is implicit
-
 	string toString() const @property
 	{
 		return num.toString ~ "/" ~ denom.toString;
@@ -94,6 +92,15 @@ struct Rational
 			return Rational(denom, num);
 	}
 
+	Rational opBinary(string op)(int b) const
+	{
+		     static if(op == "+") return Rational(num + denom*b, denom);
+		else static if(op == "-") return Rational(num - denom*b, denom);
+		else static if(op == "*") return Rational(num*b, denom);
+		else static if(op == "/") return Rational(num, denom*b);
+		else static assert(false, "binary '"~op~"' is not defined");
+	}
+
 	Rational opBinary(string op)(Integer b) const
 	{
 		     static if(op == "+") return Rational(num + denom*b, denom);
@@ -113,6 +120,24 @@ struct Rational
 			return Rational(num*b.num, denom*b.denom);
 		else static if(op == "/")
 			return Rational(num*b.denom, denom*b.num);
+		else static assert(false, "binary '"~op~"' is not defined");
+	}
+
+	Rational opBinaryRight(string op)(int a) const
+	{
+		     static if(op == "+") return Rational(denom*a + num, denom);
+		else static if(op == "-") return Rational(denom*a - num, denom);
+		else static if(op == "*") return Rational(a*num, denom);
+		else static if(op == "/") return Rational(a*denom, num);
+		else static assert(false, "binary '"~op~"' is not defined");
+	}
+
+	Rational opBinaryRight(string op)(Integer a) const
+	{
+		     static if(op == "+") return Rational(denom*a + num, denom);
+		else static if(op == "-") return Rational(denom*a - num, denom);
+		else static if(op == "*") return Rational(a*num, denom);
+		else static if(op == "/") return Rational(a*denom, num);
 		else static assert(false, "binary '"~op~"' is not defined");
 	}
 

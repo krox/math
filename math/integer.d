@@ -194,7 +194,7 @@ struct Integer
 	Integer opBinaryRight(string op)(int a) const
 		if(op == "+" || op == "*")
 	{
-		return opBinary(a); // commutative operators can simply be forwarded
+		return opBinary!op(a); // commutative operators can simply be forwarded
 	}
 
 	Integer opBinaryRight(string op)(int a) const
