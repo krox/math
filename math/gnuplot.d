@@ -46,7 +46,7 @@ class Gnuplot
 	}
 
 	/** plot raw data points */
-	void plot(RangeX, RangeY)(RangeX xs, RangeY ys, string title = null)
+	void plot(RangeX, RangeY)(RangeX xs, RangeY ys, string title = null, string style = "linespoints")
 		if(isInputRange!RangeX && isInputRange!RangeY && is(ElementType!RangeX:double) && is(ElementType!RangeY:double))
 	{
 		auto filename = "gnuplot_"~std.conv.to!string(nplots)~".txt";
@@ -60,9 +60,17 @@ class Gnuplot
 		}
 		f.close();
 
-		pipe.writef("%s '%s' using 1:2 with lines title \"%s\"\n", nplots?"replot":"plot", filename, title?title:"data");
+		pipe.writef("%s '%s' using 1:2 with %s title \"%s\"\n",
+			nplots?"replot":"plot", filename, style, title?title:"data");
 		++nplots;
 		pipe.flush();
+	}
+
+	/** ditto */
+	void plot(Range)(Range vs, string title = null, string style = "linespoints")
+		if(isInputRange!Range)
+	{
+		return plot(map!"a.x"(vs), map!"a.y"(vs), title, style);
 	}
 
 	void setXRange(double min, double max)
