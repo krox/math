@@ -8,7 +8,7 @@ module math.finitefield;
  * which would be along the lines of Coset!(Polynomial!(Coset!Integer)).
  *
  * Note that while an individual Element takes very little space, the field
- * itself precomputes tables of size O(n*p^n), which make calculations very 
+ * itself precomputes tables of size O(n*p^n), which make calculations very
  * fast, but make this module unsuitable for very large fields.
  */
 
@@ -18,7 +18,7 @@ private import std.typecons : Rebindable;
 private import std.random : uniform;
 
 private import math.conway;
-private import math.prime;
+private import math.numtheory;
 
 class FiniteField
 {
@@ -76,7 +76,7 @@ class FiniteField
 		z = FFE(this, 1);
 	}
 
-	private static immutable(FiniteField)[int] cache;
+	private static Rebindable!(immutable(FiniteField))[int] cache;
 
 	static immutable(FiniteField) opCall(int p, int n)
 	{
@@ -87,7 +87,9 @@ class FiniteField
 		if(q in cache)
 			return cache[q];
 
-		return cache[q] = new immutable(FiniteField)(p, n);
+		auto f = new immutable(FiniteField)(p, n);
+		cache[q] = f;
+		return f;
 	}
 
 	FFE opCall(int x) immutable pure
