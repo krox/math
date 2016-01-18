@@ -73,7 +73,10 @@ class FiniteField
 			logTable = assumeUnique(tmp);
 		}
 
-		z = FFE(this, 1);
+		if(q == 2)
+			z = FFE(this, 0);
+		else
+			z = FFE(this, 1);
 	}
 
 	private static Rebindable!(immutable(FiniteField))[int] cache;
