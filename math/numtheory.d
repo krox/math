@@ -266,42 +266,60 @@ bool isSPRP(long a, long n) pure nothrow
 }
 
 /**
- * test wether a number n < 3_071_837_692_357_849 is prime
- * see http://priv.ckp.pl/wizykowski/sprp.pdf for details
+ * test if n is prime
+ *
+ * see http://priv.ckp.pl/wizykowski/sprp.pdf for implementation details and
+ * http://miller-rabin.appspot.com for the actual values used therein.
  */
-bool isPrime(long n) pure
+bool isPrime(long n) pure nothrow
 {
 	if(n < 2)
 		return false;
+
 	if(n % 2 == 0)
 		return n == 2;
 
-	if(n < 49_141)
-		return isSPRP(  921_211_727, n);
+	if(n < 291_831_L)
+		return isSPRP(  126_401_071_349_994_536_L, n);
 
-	if(n < 227_132_641)
-		return isSPRP(          660, n)
-		    && isSPRP(   56_928_287, n);
+	if(n < 1_050_535_501_L)
+		return isSPRP(          336_781_006_125_L, n)
+		    && isSPRP(    9_639_812_373_923_155_L, n);
 
-	if(n < 105_936_894_253)
-		return isSPRP(            2, n)
-		    && isSPRP(1_005_905_886, n)
-		    && isSPRP(1_340_600_841, n);
+	if(n < 273_919_523_041_L)
+		return isSPRP(                       15_L, n)
+		    && isSPRP(            7_363_882_082_L, n)
+		    && isSPRP(      992_620_450_144_556_L, n);
 
-	if(n < 31_858_317_218_647)
-		return isSPRP(            2, n)
-		    && isSPRP(      642_735, n)
-		    && isSPRP(  553_174_392, n)
-		    && isSPRP(3_046_413_974, n);
+	if(n < 47_636_622_961_201_L)
+		return isSPRP(                        2_L, n)
+		    && isSPRP(                2_570_940_L, n)
+		    && isSPRP(              211_991_001_L, n)
+		    && isSPRP(            3_749_873_356_L, n);
 
-	if(n < 3_071_837_692_357_849)
-		return isSPRP(            2, n)
-		    && isSPRP(       75_088, n)
-		    && isSPRP(      642_735, n)
-		    && isSPRP(  203_659_041, n)
-		    && isSPRP(3_613_982_119, n);
+	if(n < 3_770_579_582_154_547_L)
+		return isSPRP(                        2_L, n)
+		    && isSPRP(                2_570_940_L, n)
+		    && isSPRP(                  880_937_L, n)
+		    && isSPRP(              610_386_380_L, n)
+		    && isSPRP(            4_130_785_767_L, n);
 
-	throw new Exception("number to high for prime testing");
+	if(n < 585_226_005_592_931_977_L)
+		return isSPRP(                        2_L, n)
+		    && isSPRP(      123_635_709_730_000_L, n)
+		    && isSPRP(    9_233_062_284_813_009_L, n)
+		    && isSPRP(   43_835_965_440_333_360_L, n)
+		    && isSPRP(  761_179_012_939_631_437_L, n)
+		    && isSPRP(1_263_739_024_124_850_375_L, n);
+
+	if(true) // should work for all n < 2^64
+		return isSPRP(                        2_L, n)
+		    && isSPRP(                      325_L, n)
+		    && isSPRP(                    9_375_L, n)
+		    && isSPRP(                   28_178_L, n)
+		    && isSPRP(                  450_775_L, n)
+		    && isSPRP(                9_780_504_L, n)
+		    && isSPRP(            1_795_265_022_L, n);
 }
 
 /**
@@ -360,7 +378,7 @@ struct Factorization
 	/**
 	 * checks if all factors are prime
 	 */
-	bool allPrime() pure const @property
+	bool allPrime() pure nothrow const @property
 	{
 		foreach(f; factors)
 			if(!isPrime(f[0]))
