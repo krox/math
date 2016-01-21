@@ -13,10 +13,10 @@ import jive.array;
 import jive.bitarray;
 private import std.math : log, sqrt;
 private import core.bitop : bsf;
-private import std.typetuple;
 private import std.typecons;
 private import std.algorithm;
 private import std.exception;
+private import std.format;
 
 
 /** generate all prime numbers below n using a simple sieve */
@@ -118,90 +118,106 @@ immutable(long)[] primesBelow(long n)
 }
 
 /**
- * Calculate base^exp % mod using binary exponentiation.
- * Sign of mod is ignored and result is always >= 0.
+ * calculate (a + b) % m
+ * (without the overflow problems of the naive expression)
+ * conditions: m > 0 and 0 <= a,b,result < m
  */
-long powmod(long base, long exp, long mod) //pure
+long addmod(long a, long b, long m) pure nothrow
 {
-	if(mod < 0)
-		mod = -mod;
+	assert(m > 0);
+	assert(0 <= a && a < m);
+	assert(0 <= b && b < m);
 
-	if(mod > uint.max)
-		throw new Exception("exponentiation with large modulus not supported (TODO)");
-
-	base %= mod;
-	if(base < 0)
-		base += mod;
-
-	if(exp < 0)
-	{
-		base = modinv(base, mod);
-		exp = -exp;
-	}
-
-	// signed -> unsigned cast is safe now, and this way, slightly
-	// larger values for mod can be allowed: (m-1)^2 has to fit into ulong
-	ulong b = base;
-	ulong e = exp;
-	ulong m = mod;
-	ulong r = 1;
-
-	while(e)
-	{
-		if(e&1)
-			r = (r*b)%m;
-		e >>= 1;
-		b = (b*b) % m;
-	}
-
-	return r; // cast back to signed should be fine now
+	if(b < m-a)
+		return a+b;
+	else
+		return a+b-m;
 }
 
 /**
- * Compute inverse of x modulo mod.
- * Sign of mod is ignored, result is always > 0.
- * Throws if gcd(x,mod) != 1.
+ * calculate (a * b) % m
+ * (without the overflow problems of the naive expression)
+ * conditions: m > 0 and 0 <= a,b,result < m
  */
-long modinv(long x, long mod) //pure
+long mulmod(long a, long b, long m) pure nothrow
 {
-	// cool trick if mod is known to be a prime
-	//return powmod(x,mod-2,mod);
+	assert(m > 0);
+	assert(0 <= a && a < m);
+	assert(0 <= b && b < m);
 
-	if(mod < 0)
-		mod = -mod;
-	x %= mod;
+	if(a > b)
+		swap(a, b);
 
-	// invariant: a = y * x + _ * mod
-	long a_old = mod;
-	long a = x;
-	long y_old = 0;
-	long y = 1;
-
-	while(a != 0)
-	{
-		long q = a_old/a;
-
-		long t = a;
-		a = a_old%a;
-		a_old = t;
-
-		t = y;
-		y = y_old - q*y;
-		y_old = t;
-	}
-
-	if(a_old != 1)
-		throw new Exception("number not invertible (gcd(x,mod) != 1)");
-
-	return y_old>=0?y_old:y_old+mod;
+	long r = 0;
+	for (; a != 0; a >>= 1, b = addmod(b, b, m))
+		if(a & 1)
+			r = addmod(r, b, m);
+	return r;
 }
 
 /**
- * Compute greatest common divisor of a and b.
+ * calculate (a ^ b) % m using binary exponentiation
+ * uses modular inverse for negative powers
+ * conditions: m > 0 and 0 <= a,result < mod
+ * triggers division by zero if b < 0 and gcd(x, m) != 1
+ */
+long powmod(long a, long b, long m) pure nothrow
+{
+	assert(m > 0);
+	assert(0 <= a && a < m);
+
+	if(b < 0)
+	{
+		a = modinv(a, m);
+		b = -b;
+	}
+
+	long r = 1;
+	for(; b != 0; b >>= 1, a = mulmod(a, a, m))
+		if(b & 1)
+			r = mulmod(r, a, m);
+	return r;
+}
+
+/**
+ * calculate the modular inverse a^-1 % m
+ * conditions: m > 0 and 0 <= a,result < m
+ * triggers division by zero if gcd(x, m) != 1
+ */
+long modinv(long a, long m) pure nothrow
+{
+	assert(m > 0);
+	assert(0 <= a && a < m);
+
+	long a0 = m;
+	long a1 = a;
+	long b0 = 0;
+	long b1 = 1;
+
+	while(a1 > 1)
+	{
+		long q = a0 / a1;
+		long a2 = a0 - q*a1;
+		long b2 = b0 - q*b1;
+
+		a0 = a1;
+		a1 = a2;
+		b0 = b1;
+		b1 = b2;
+	}
+
+	if(b1 < 0)
+		b1 += m;
+	assert(0 <= b1 && b1 < m);
+	return b1;
+}
+
+/**
+ * calculate greatest common divisor of a and b.
  * Sign of a and b is ignored, result is always >= 0.
- * Convention: gcd(0,x) = x = gcd(x,0).
+ * Convention: gcd(0,x) = abs(x) = gcd(x,0).
  */
-long gcd(long a, long b)
+long gcd(long a, long b) pure nothrow
 {
 	while(true)
 	{
@@ -215,26 +231,25 @@ long gcd(long a, long b)
 	}
 }
 
-/** tests wether n is a strong probable prime to base a */
-bool isSPRP(long a, long n)
+/**
+ * tests wether n is a strong probable prime to base a
+ * conditions a >= 0 and n >= 3 odd
+ * note that for a % n = -1,0,1 this returns always true
+ */
+bool isSPRP(long a, long n) pure nothrow
 {
-	if(n > uint.max) // binary exponentiation wont work (also bsf on 32 bit system)
-		throw new Exception("overflow in isSPRP()");
-	if(a <= 0)
-		throw new Exception("a-SPRP is only defined for a>0");
-
-	if(n < 2)
-		return false;
+	assert(a >= 0);
+	assert(n > 1 && n % 2 == 1);
 
 	// the original definition assumes a < n-1, we use a straight-forward generalization
 	a %= n;
 	if(a == 0 || a == 1 || a == n-1)
 		return true;
 
-	long s = bsf(cast(size_t)(n-1));
+	long s = bsf(n-1);
 	long d = (n-1) >> s;
 
-	// now it is n-1 = t*2^s, t odd
+	// now it is n-1 = d*2^s, t odd
 
 	a = powmod(a, d, n);
 	if(a == 1 || a == n-1)
@@ -242,10 +257,11 @@ bool isSPRP(long a, long n)
 
 	while(--s)
 	{
-		a = (cast(ulong)a*cast(ulong)a)%cast(ulong)n;
+		a = mulmod(a, a, n);
 		if(a == n-1)
 			return true;
 	}
+
 	return false;
 }
 
@@ -253,24 +269,16 @@ bool isSPRP(long a, long n)
  * test wether a number n < 3_071_837_692_357_849 is prime
  * see http://priv.ckp.pl/wizykowski/sprp.pdf for details
  */
-bool isPrime(long n) //pure
+bool isPrime(long n) pure
 {
-	if(n<2)
+	if(n < 2)
 		return false;
-	if(n%2==0)
+	if(n % 2 == 0)
 		return n == 2;
 
-	// TODO: better optimization for small n
-	// i.e.: table-lookup and/or more/smarter trial-division
-	for(long d = 3; d < 20; d += 2)
-	{
-		if(d*d > n)
-			return true;
-		if(n%d == 0)
-			return false;
-	}
+	if(n < 49_141)
+		return isSPRP(  921_211_727, n);
 
-	// NOTE: only use bases < 2^32. isSPRP() and powmod cant handle higher values
 	if(n < 227_132_641)
 		return isSPRP(          660, n)
 		    && isSPRP(   56_928_287, n);
@@ -293,82 +301,134 @@ bool isPrime(long n) //pure
 		    && isSPRP(  203_659_041, n)
 		    && isSPRP(3_613_982_119, n);
 
-
 	throw new Exception("number to high for prime testing");
 }
 
 /**
- * factorize a number using simple trial division.
+ * convenience wrapper around Array!(Tuple!(long,int)) for integer factorization
  */
-Array!(Tuple!(long,int)) factor(long n)
+struct Factorization
 {
-	if(n <= 0)
-		throw new Exception("can only factor positive numbers");
+	Array!(Tuple!(long,int)) factors;
+	alias factors this;
 
-	auto limit = cast(long)sqrt(cast(double)n)+1;
-	assert(limit*limit > n);
-
-	Array!(Tuple!(long,int)) f;
-
-	foreach(long p; primesBelow(limit))
+	/**
+	 * puts the product in human readable form
+	 */
+	string toString() const @property
 	{
-		if(p*p > n)
-			break;
-		int c = 0;
-		while(n%p == 0)
+		if(factors.empty)
+			return "1";
+		string r;
+		foreach(f; factors)
 		{
-			n /= p;
-			++c;
+			if(f[1] == 1)
+				r ~= format("(%s)", f[0]);
+			else
+				r ~= format("(%s)^%s", f[0], f[1]);
 		}
 
-		if(c)
-			f.pushBack(tuple(p, c));
+		return r;
 	}
 
-	if(n != 1)
+	/**
+	 * sort factors and collect duplicates
+	 */
+	void normalize()
 	{
-		assert(isPrime(n));
-		f.pushBack(tuple(n, 1));
+		sort!"a[0] < b[0]"(factors[]);
+		foreach(i, f, ref bool rem; &factors.prune)
+			if(i+1 < factors.length && f[0] == factors[i+1][0])
+			{
+				factors[i+1][1] += f[1];
+				rem = true;
+			}
 	}
 
+	/**
+	 * multiply the factorization again. Mostly for checking.
+	 */
+	long multiply() pure nothrow const @property
+	{
+		long r = 1;
+		foreach(f; factors)
+			for(int i = 0; i < f[1]; ++i)
+				r *= f[0];
+		return r;
+	}
+
+	/**
+	 * checks if all factors are prime
+	 */
+	bool allPrime() pure const @property
+	{
+		foreach(f; factors)
+			if(!isPrime(f[0]))
+				return false;
+		return true;
+	}
+}
+
+/**
+ * factorize a number using pollard rho
+ */
+Factorization factor(long n)
+{
+	assert(n > 0);
+
+	Factorization f;
+	if(n == 1)
+		return f;
+	f.pushBack(tuple(n,1));
+
+	for(int i = 0; i < f.length; ++i)
+	{
+		while(!isPrime(f[i][0]))
+		{
+			long d = f[i][0];
+			for(int c = 1; d == f[i][0]; ++c)
+				d = findFactor(f[i][0], 0, c);
+
+			f[i][0] /= d;
+			f.pushBack(tuple(d, 1));
+		}
+	}
+
+	f.normalize();
+	assert(f.multiply == n);
+	//assert(f.allPrime);
 	return f;
 }
 
 /**
- * ditto
+ * find a factor of n using basic pollard rho
+ * returns either a proper factor of n (which is not necessarily prime),
+ * or n if none was found. in the latter case try using a different value for c
  */
-Array!long primeFactors(long n)
+long findFactor(long n, long x0, long c) pure nothrow
 {
-	if(n <= 0)
-		throw new Exception("can only factor positive numbers");
+	assert(n > 0);
+	assert(0 < c && c < n);
 
-	auto limit = cast(long)sqrt(cast(double)n)+1;
-	assert(limit*limit > n);
+	long x = x0; // arbitrary start value. Actual randomization might be good...
+	long runLength = 1;
 
-	Array!long f;
-
-	foreach(long p; primesBelow(limit))
+	while(true)
 	{
-		if(p*p > n)
-			break;
-		if(n%p == 0)
+		long y = x;
+
+		for(long i = 0; i < runLength; ++i)
 		{
-			do
-			{
-				n /= p;
-			}
-			while(n%p == 0);
-			f.pushBack(p);
+			x = mulmod(x, x, n);
+			x = addmod(x, c, n);
+			long d = gcd(x-y, n);
+
+			if(d != 1)
+				return d;
 		}
-	}
 
-	if(n != 1)
-	{
-		assert(isPrime(n));
-		f.pushBack(n);
+		runLength *= 2;
 	}
-
-	return f;
 }
 
 /**
@@ -376,8 +436,8 @@ Array!long primeFactors(long n)
  */
 long phi(long n)
 {
-	foreach(p; primeFactors(n))
-		n = n/p*(p-1);
+	foreach(p; factor(n))
+		n = n/p[0]*(p[0]-1);
 	return n;
 }
 
@@ -395,7 +455,7 @@ long primitiveRoot(long n)
 		return 1;
 
 	auto p = phi(n);
-	auto fs = primeFactors(p);
+	auto fs = factor(p);
 
 	outer: for(long x = 2; x < n; ++x)
 	{
@@ -403,7 +463,7 @@ long primitiveRoot(long n)
 			continue outer;
 
 		foreach(f; fs)
-			if(powmod(x, p/f, n) == 1)
+			if(powmod(x, p/f[0], n) == 1)
 				continue outer;
 
 		return x;
