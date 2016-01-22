@@ -1,11 +1,13 @@
 module math.integer;
 
 private import std.string : toStringz;
+private import std.format;
 private import std.conv : to;
 private import std.typecons;
 private import std.exception : assumeUnique;
 private import std.random : unpredictableSeed;
-
+private import std.algorithm;
+private import jive.array;
 private import math.gmp;
 
 /**
@@ -481,5 +483,144 @@ Integer sqrtMod(Integer n, Integer p)
 		c = b*b;
 		t = c*t;
 		m = i;
+	}
+}
+
+/**
+ * convenience wrapper around Array!(Tuple!(Integer,int)) for integer factorization
+ */
+struct Factorization
+{
+	Array!(Tuple!(Integer,int)) factors;
+	alias factors this;
+
+	/**
+	 * puts the product in human readable form
+	 */
+	string toString() const @property
+	{
+		if(factors.empty)
+			return "1";
+		string r;
+		foreach(f; factors)
+		{
+			if(f[1] == 1)
+				r ~= format("(%s)", f[0]);
+			else
+				r ~= format("(%s)^%s", f[0], f[1]);
+		}
+
+		return r;
+	}
+
+	/**
+	 * sort factors and collect duplicates
+	 */
+	void normalize()
+	{
+		sort!"a[0] < b[0]"(factors[]);
+		foreach(i, f, ref bool rem; &factors.prune)
+			if(i+1 < factors.length && f[0] == factors[i+1][0])
+			{
+				factors[i+1][1] += f[1];
+				rem = true;
+			}
+	}
+
+	/**
+	 * multiply the factorization again. Mostly for checking.
+	 */
+	Integer multiply()const @property
+	{
+		Integer r = 1;
+		foreach(f; factors)
+			for(int i = 0; i < f[1]; ++i)
+				r = r*f[0];
+		return r;
+	}
+
+	/**
+	 * checks if all factors are prime
+	 */
+	bool allPrime()const @property
+	{
+		foreach(f; factors)
+			if(!isPrime(f[0]))
+				return false;
+		return true;
+	}
+}
+
+/**
+ * factorize a number using pollard rho
+ */
+Factorization factor(Integer n)
+{
+	assert(n > 0);
+
+	Factorization f;
+	if(n == 1)
+		return f;
+	f.pushBack(tuple(n,1));
+
+	for(int i = 0; i < f.length; ++i)
+	{
+		while(!isPrime(f[i][0]))
+		{
+			Integer d = f[i][0];
+			for(int c = 1; d == f[i][0]; ++c)
+				d = findFactor(f[i][0], Integer(0), c);
+
+			f[i][0] = f[i][0].divExact(d);
+			f.pushBack(tuple(d, 1));
+		}
+	}
+
+	f.normalize();
+	assert(f.multiply == n);
+	//assert(f.allPrime);
+	return f;
+}
+
+/**
+ * find a factor of n using basic pollard rho
+ * returns either a proper factor of n (which is not necessarily prime),
+ * or n if none was found. in the latter case try using a different value for c
+ */
+Integer findFactor(Integer n, Integer x0, int c)
+{
+	assert(n > 0);
+	assert(0 < c && c < n);
+
+	auto x = new GmpInteger;
+	auto y = new GmpInteger;
+	auto d = new GmpInteger;
+	__gmpz_set(x.ptr, x0.ptr);
+	long runLength = 1;
+
+	while(true)
+	{
+		__gmpz_set(y.ptr, x.ptr);
+
+		for(long i = 0; i < runLength; ++i)
+		{
+			// x = (x * x + c) % n
+			__gmpz_mul(x.ptr, x.ptr, x.ptr);
+			__gmpz_add_ui(x.ptr, x.ptr, c);
+			__gmpz_fdiv_r(x.ptr, x.ptr, n.ptr);
+
+			// d = gcd(x-y, n)
+			__gmpz_sub(d.ptr, x.ptr, y.ptr);
+			__gmpz_gcd(d.ptr, d.ptr, n.ptr); // ignores sign of d
+
+			if(__gmpz_cmp_ui(d.ptr, 1) != 0)
+			{
+				delete x;
+				delete y;
+				return Integer(cast(immutable)d);
+			}
+		}
+
+		runLength *= 2;
 	}
 }
