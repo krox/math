@@ -1,9 +1,8 @@
 module math.factorring;
 
-import std.conv : format;
-import std.algorithm : move;
-import math.integer;
-
+private import std.format;
+private import std.algorithm : move;
+private import math.integer;
 
 struct Coset(Ring)
 {
