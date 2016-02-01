@@ -1,7 +1,7 @@
 module math.numtheory;
 
 /**
- * Number Theory functions for 64-bit integers and smaller
+ * Number Theory and combinatorical functions for 64-bit integers and smaller
  *
  * For similar functionality using arbitrary large numbers, see math.integer.
  * Also, there is no special consideration for architectures without a native
@@ -19,103 +19,9 @@ private import std.exception;
 private import std.format;
 
 
-/** generate all prime numbers below n using a simple sieve */
-Array!long calculatePrimesBelow(long n)
-{
-	if(n < 0)
-		n = 0;
-
-	if(n > size_t.max) // can only trigger on a 32 bit system
-		throw new Exception("can not calculate that many primes");
-
-	// (exclusive) limit for relevant prime divisors
-	long limit = cast(long)sqrt(cast(double)n) + 1;
-	assert(limit*limit > n); // not sure about floating-point rounding for very large n ...
-
-	// excluding 2 and 3 as special cases, all primes have the form 5*k +- 1
-	auto b5 = BitArray(cast(size_t)n/6); // b5[k] represents 6*k+5
-	auto b7 = BitArray(cast(size_t)n/6); // b7[k] represents 6*k+7
-
-	// mark all non-primes
-	// NOTE: in older versions of DMD, making k an ulong triggers a strange bug:
-	// issues.dlang.org/show_bug.cgi?id=13023
-	for(long k = 0; k < n/6; ++k)
-	{
-		if(!b5[cast(size_t)k])
-		{
-			long p = 6*k+5;
-
-			if(p >= limit)
-				break;
-
-			for(long s = (p*(p+2)-5)/6; s < b5.length; s += p)
-				b5[cast(size_t)s] = true;
-
-			for(long s = (p*p-7)/6; s < b7.length; s += p)
-				b7[cast(size_t)s] = true;
-		}
-
-		if(!b7[cast(size_t)k])
-		{
-			long p = 6*k+7;
-
-			if(p >= limit)
-				break;
-
-			for(long s = (p*(p+4)-5)/6; s < b5.length; s += p)
-				b5[cast(size_t)s] = true;
-
-			for(long s = (p*p-7)/6; s < b7.length; s += p)
-				b7[cast(size_t)s] = true;
-		}
-	}
-
-	// collect primes into array
-	Array!long primes;
-	primes.reserve(b5.count(false) + b7.count(false) + 2);
-	primes.pushBack(2);
-	primes.pushBack(3);
-	for(long k = 0; k < n/6; ++k)
-	{
-		if(!b5[cast(size_t)k])
-			primes.pushBack(6L*k+5);
-		if(!b7[cast(size_t)k])
-			primes.pushBack(6L*k+7);
-	}
-
-	// now we might have computed slightly more primes than requested,
-	// so we remove them again (simpler than doing it right in the beginning)
-	while(!primes.empty && primes[$-1] >= n)
-		primes.popBack;
-
-	return primes;
-}
-
-immutable(long)[] primesBelow(long n)
-{
-	static immutable(long)[] cache;
-	static long limit = 2;
-
-	if(n > limit)
-	{
-		limit = max(n, limit+limit/2);
-		cache = assumeUnique(cast(long[])calculatePrimesBelow(limit));
-	}
-
-	size_t a=0, b=cache.length;
-
-	while (a != b)
-	{
-		size_t m = (a+b)/2;
-
-		if (cache[m] < n)
-			a = m+1;
-		else
-			b = m;
-	}
-
-	return cache[0..a];
-}
+//////////////////////////////////////////////////////////////////////
+/// modular arithmetic
+//////////////////////////////////////////////////////////////////////
 
 /**
  * calculate (a + b) % m
@@ -212,23 +118,108 @@ long modinv(long a, long m) pure nothrow
 	return b1;
 }
 
-/**
- * calculate greatest common divisor of a and b.
- * Sign of a and b is ignored, result is always >= 0.
- * Convention: gcd(0,x) = abs(x) = gcd(x,0).
- */
-long gcd(long a, long b) pure nothrow
-{
-	while(true)
-	{
-		if(a == 0)
-			return b>=0?b:-b;
-		b %= a;
 
-		if(b == 0)
-			return a>=0?a:-a;
-		a %= b;
+//////////////////////////////////////////////////////////////////////
+/// prime number generation and testing
+//////////////////////////////////////////////////////////////////////
+
+/** generate all prime numbers below n using a simple sieve */
+Array!long calculatePrimesBelow(long n)
+{
+	if(n < 0)
+		n = 0;
+
+	if(n > size_t.max) // can only trigger on a 32 bit system
+		throw new Exception("can not calculate that many primes");
+
+	// (exclusive) limit for relevant prime divisors
+	long limit = cast(long)sqrt(cast(double)n) + 1;
+	assert(limit*limit > n); // not sure about floating-point rounding for very large n ...
+
+	// excluding 2 and 3 as special cases, all primes have the form 5*k +- 1
+	auto b5 = BitArray(cast(size_t)n/6); // b5[k] represents 6*k+5
+	auto b7 = BitArray(cast(size_t)n/6); // b7[k] represents 6*k+7
+
+	// mark all non-primes
+	// NOTE: in older versions of DMD, making k an ulong triggers a strange bug:
+	// issues.dlang.org/show_bug.cgi?id=13023
+	for(long k = 0; k < n/6; ++k)
+	{
+		if(!b5[cast(size_t)k])
+		{
+			long p = 6*k+5;
+
+			if(p >= limit)
+				break;
+
+			for(long s = (p*(p+2)-5)/6; s < b5.length; s += p)
+				b5[cast(size_t)s] = true;
+
+			for(long s = (p*p-7)/6; s < b7.length; s += p)
+				b7[cast(size_t)s] = true;
+		}
+
+		if(!b7[cast(size_t)k])
+		{
+			long p = 6*k+7;
+
+			if(p >= limit)
+				break;
+
+			for(long s = (p*(p+4)-5)/6; s < b5.length; s += p)
+				b5[cast(size_t)s] = true;
+
+			for(long s = (p*p-7)/6; s < b7.length; s += p)
+				b7[cast(size_t)s] = true;
+		}
 	}
+
+	// collect primes into array
+	Array!long primes;
+	primes.reserve(b5.count(false) + b7.count(false) + 2);
+	primes.pushBack(2);
+	primes.pushBack(3);
+	for(long k = 0; k < n/6; ++k)
+	{
+		if(!b5[cast(size_t)k])
+			primes.pushBack(6L*k+5);
+		if(!b7[cast(size_t)k])
+			primes.pushBack(6L*k+7);
+	}
+
+	// now we might have computed slightly more primes than requested,
+	// so we remove them again (simpler than doing it right in the beginning)
+	while(!primes.empty && primes[$-1] >= n)
+		primes.popBack;
+
+	return primes;
+}
+
+/** caching version of the above. returns slice into global immutable array */
+immutable(long)[] primesBelow(long n)
+{
+	static immutable(long)[] cache;
+	static long limit = 2;
+
+	if(n > limit)
+	{
+		limit = max(n, limit+limit/2);
+		cache = assumeUnique(cast(long[])calculatePrimesBelow(limit));
+	}
+
+	size_t a=0, b=cache.length;
+
+	while (a != b)
+	{
+		size_t m = (a+b)/2;
+
+		if (cache[m] < n)
+			a = m+1;
+		else
+			b = m;
+	}
+
+	return cache[0..a];
 }
 
 /**
@@ -299,8 +290,8 @@ bool isPrime(long n) pure nothrow
 
 	if(n < 3_770_579_582_154_547_L)
 		return isSPRP(                        2_L, n)
-		    && isSPRP(                2_570_940_L, n)
 		    && isSPRP(                  880_937_L, n)
+			&& isSPRP(                2_570_940_L, n)
 		    && isSPRP(              610_386_380_L, n)
 		    && isSPRP(            4_130_785_767_L, n);
 
@@ -321,6 +312,19 @@ bool isPrime(long n) pure nothrow
 		    && isSPRP(                9_780_504_L, n)
 		    && isSPRP(            1_795_265_022_L, n);
 }
+
+unittest
+{
+	assert(calculatePrimesBelow(20)[] == [2,3,5,7,11,13,17,19]);
+	assert(isPrime(1000000007));
+	assert(isPrime(9223372036854775783L)); // largest 63 bit prime
+	assert(!isPrime(1000000007L*1000000009L));
+}
+
+
+//////////////////////////////////////////////////////////////////////
+/// integer factorization
+//////////////////////////////////////////////////////////////////////
 
 /**
  * convenience wrapper around Array!(Tuple!(long,int)) for integer factorization
@@ -449,6 +453,96 @@ long findFactor(long n, long x0, long c) pure nothrow
 	}
 }
 
+unittest
+{
+	assert(factor(2*2*2*2*3*5*5*7)[] == [tuple(2,4),tuple(3,1),tuple(5,2),tuple(7,1)]);
+	assert(factor(1000000007L*1000000009L)[] == [tuple(1000000007L,1), tuple(1000000009L,1)]);
+}
+
+
+//////////////////////////////////////////////////////////////////////
+/// combinatoric functions
+//////////////////////////////////////////////////////////////////////
+
+/**
+ * caclulate the factorial
+ * n! = n * (n-1) * ... * 2 * 1
+ */
+long factorial(long n) pure nothrow
+{
+	assert(0 <= n && n <= 20);
+
+	long r = 1;
+	for(long i = 2; i <= n; ++i)
+		r *= i;
+	return r;
+}
+
+/**
+ * calculate a binomial coefficient
+ * (n over k) = n! / (k! * (n-k)!)
+ */
+long binomial(long n, long k)
+{
+	assert(0 <= n);
+	assert(0 <= k && k <= n);
+
+	// use symmetry to minimize work
+	if(n - k < k)
+		k = n - k;
+
+	long r = 1;
+	for(long i = 1; i <= k; ++i)
+	{
+		assert(r <= long.max/(n+1-i));
+		r *= (n+1-i);
+		r /= i;
+	}
+	return r;
+}
+
+/**
+ * caclulate 1^k + 2^k + .. + n^k using Faulhaber's formula
+ *
+ * currently only implemented for k <= 3, because the general case needs
+ * Bernoulli numbers which are not whole numbers so I need to think about a
+ * beautiful way to write that (without rounding or actual rational arithmetic)
+ */
+long powerSum(long k, long n)
+{
+	assert(0 <= n);
+
+	switch(k)
+	{
+		case 0: return n;
+		case 1: return n*(n+1)/2;
+		case 2: return n*(n+1)*(2*n+1)/6;
+		case 3: return n*n*(n+1)*(n+1)/4;
+		default: assert(false);
+	}
+}
+
+unittest
+{
+	assert(factorial(0) == 1);
+	assert(factorial(5) == 120);
+	assert(binomial(0,0) == 1);
+	assert(binomial(4,2) == 6);
+
+	assert(powerSum(0, 5) == 1 + 1 + 1 + 1 + 1);
+	assert(powerSum(1, 5) == 1 + 2 + 3 + 4 + 5);
+	assert(powerSum(2, 5) == 1*1 + 2*2 + 3*3 + 4*4 + 5*5);
+	assert(powerSum(3, 5) == 1*1*1 + 2*2*2 + 3*3*3 + 4*4*4 + 5*5*5);
+}
+
+
+//////////////////////////////////////////////////////////////////////
+/// number theoretic functions
+//////////////////////////////////////////////////////////////////////
+
+
+// TODO: templated function for general multiplicative functions
+
 /**
  * Euler's totient function.
  */
@@ -457,6 +551,29 @@ long phi(long n)
 	foreach(p; factor(n))
 		n = n/p[0]*(p[0]-1);
 	return n;
+}
+
+//////////////////////////////////////////////////////////////////////
+/// other stuff not fitting in the above categories
+//////////////////////////////////////////////////////////////////////
+
+/**
+ * calculate greatest common divisor of a and b.
+ * Sign of a and b is ignored, result is always >= 0.
+ * Convention: gcd(0,x) = abs(x) = gcd(x,0).
+ */
+long gcd(long a, long b) pure nothrow
+{
+	while(true)
+	{
+		if(a == 0)
+			return b>=0?b:-b;
+		b %= a;
+
+		if(b == 0)
+			return a>=0?a:-a;
+		a %= b;
+	}
 }
 
 /**
