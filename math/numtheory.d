@@ -15,8 +15,10 @@ private import std.math : log, sqrt;
 private import core.bitop : bsf;
 private import std.typecons;
 private import std.algorithm;
+private import std.range;
 private import std.exception;
 private import std.format;
+private import std.functional : unaryFun;
 
 
 //////////////////////////////////////////////////////////////////////
@@ -195,31 +197,29 @@ Array!long calculatePrimesBelow(long n)
 	return primes;
 }
 
-/** caching version of the above. returns slice into global immutable array */
-immutable(long)[] primesBelow(long n)
+/**
+ * returns all primes in [a..b) using cached results from calculatePrimesBelow
+ */
+immutable(long)[] primesBetween(long a, long b)
 {
 	static immutable(long)[] cache;
 	static long limit = 2;
 
-	if(n > limit)
+	if(b > limit)
 	{
-		limit = max(n, limit+limit/2);
+		limit = max(b, limit+limit/2);
 		cache = assumeUnique(cast(long[])calculatePrimesBelow(limit));
 	}
 
-	size_t a=0, b=cache.length;
+	return cache[].assumeSorted.upperBound(a-1).lowerBound(b).release;
+}
 
-	while (a != b)
-	{
-		size_t m = (a+b)/2;
-
-		if (cache[m] < n)
-			a = m+1;
-		else
-			b = m;
-	}
-
-	return cache[0..a];
+/**
+ * alias for primesBetween(0, n)
+ */
+immutable(long)[] primesBelow(long n)
+{
+	return primesBetween(0, n);
 }
 
 /**
@@ -315,7 +315,7 @@ bool isPrime(long n) pure nothrow
 
 unittest
 {
-	assert(calculatePrimesBelow(20)[] == [2,3,5,7,11,13,17,19]);
+	assert(primesBetween(3,20) == [3,5,7,11,13,17,19]);
 	assert(isPrime(1000000007));
 	assert(isPrime(9223372036854775783L)); // largest 63 bit prime
 	assert(!isPrime(1000000007L*1000000009L));
@@ -605,4 +605,45 @@ long primitiveRoot(long n)
 	}
 
 	throw new Exception("no primitive root found");
+}
+
+/** Caclulate f(f(f(...f(x)...))) using Brent's cycle finding method */
+T functionPower(alias f, T)(long n, T x0)
+{
+	assert(0 <= n);
+
+	T x = x0;
+	T y = x;
+	long safe = 0;
+
+	for(long i = 0; i < n; ++i, x = unaryFun!f(x))
+	{
+		if(i != 0 && x == y) // found cycle ?
+		{
+			// advance by whole cycles
+			long len = i - safe;
+			assert(len > 0);
+			long c = (n-i)/len;
+			i += c*len;
+
+			// compute last (incomplete) cycle and return
+			for(; i < n; ++i)
+				x = unaryFun!f(x);
+			return x;
+		}
+
+		if(i >= 2*safe) // new safe point
+		{
+			safe = i;
+			y = x;
+		}
+	}
+
+	return x; // only if no cycle was found
+}
+
+unittest
+{
+	assert(functionPower!"(a+1)%5"(10,0) == 0);
+	assert(functionPower!"(a+1)%5"(123456789123456789L,0) == 4);
 }
