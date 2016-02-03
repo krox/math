@@ -5,67 +5,53 @@ import math.rational;
 
 
 /**
- * Numbers of the form (a + b * sqrt(d)), with rationals a, b and d a (fixed) squarefree integer (and not 0 or 1).
+ * Numbers of the form (a + b * sqrt(d)), with a, b and d a (fixed) non-square.
+ * should (at least) work with T == Rational and T == IntMod
  */
-
-
-struct Quadratic
+struct Quadratic(T)
 {
-	Rational a, b;
-	Integer d;
+	T a, b, d;
 
-	this(int a, int b, int d)
+	this(T a, T b, T d)
 	{
+		// would be nice to check d for non-square here
+
 		this.a = a;
 		this.b = b;
 		this.d = d;
 	}
 
-	this(Rational a, Rational b, Integer d)
-	{
-		this.a = a;
-		this.b = b;
-		this.d = d;
-	}
-
-	string toString() const @property
+	string toString() const pure nothrow @property
 	{
 		return a.toString~"+"~b.toString~"√"~d.toString;
 	}
 
-	/** return -1 / 0 / +1, possibly faster than actual compare */
-	int sign() const
-	{
-		assert(false, "TODO");
-	}
-
-	/** replace this with -this */
-	Quadratic opUnary(string op)() const
+	/** (additive) inverse) */
+	Quadratic opUnary(string op)() const pure nothrow @property
 		if(op == "-")
 	{
 		return Quadratic(-a, -b, d);
 	}
 
-	/** negate the 'imaginary' part (for d>0 it is not imaginary, but conjugation is still an automorphism) */
-	Quadratic conjugate() const
+	/** negate the 'imaginary' part */
+	Quadratic conjugate() const pure nothrow
 	{
 		return Quadratic(a, -b, d);
 	}
 
 	/** returns the norm N(x) = x*conj(x) */
-	Rational norm() const @property
+	T norm() const pure nothrow @property
 	{
 		return a*a-b*b*d;
 	}
 
 	/** returns 1/this */
-	Quadratic inverse() const
+	Quadratic inverse() const pure nothrow
 	{
 		return conjugate / norm;
 	}
 
-	Quadratic opBinary(string op, T)(T rhs) const
-		if(is(T == Rational) || is(T == Integer))
+	Quadratic opBinary(string op)(T rhs) const pure nothrow
 	{
 		static if(op == "+")
 			return Quadratic(a+rhs, b, d);
@@ -78,44 +64,70 @@ struct Quadratic
 		else static assert(false, "binary assign '"~op~"' is not defined");
 	}
 
-	Quadratic opBinary(string op)(Quadratic rhs) const
+	Quadratic opBinary(string op)(Quadratic rhs) const pure nothrow
 	{
-		assert(this.field is rhs.field);
+		assert(this.d == rhs.d);
 
 		     static if(op == "+") return Quadratic(a+rhs.a, b+rhs.b, d);
 		else static if(op == "-") return Quadratic(a-rhs.a, b-rhs.b, d);
 		else static if(op == "*") return Quadratic(a*rhs.a + b*rhs.b*d, a*rhs.b + b*rhs.a, d);
-		else static if(op == "/") auto r = Quadratic(a*rhs.a - b*rhs.b*d, b*rhs.a - a*rhs.b, d) / rhs.norm;
+		else static if(op == "/") return Quadratic(a*rhs.a - b*rhs.b*d, b*rhs.a - a*rhs.b, d) / rhs.norm;
 		else static assert(false, "binary assign '"~op~"' is not defined");
 	}
 
-	bool opEquals(Quadratic r) const
+	Quadratic opBinary(string op)(long e) const pure nothrow
+		if(op == "^^")
 	{
+		Quadratic b = this;
+		if(e < 0)
+		{
+			b = b.inverse;
+			e = -e;
+		}
+
+		auto r = this/this; // TODO: remove hack
+		for(; e != 0; e >>= 1, b = b*b)
+			if(e&1)
+				r = r * b;
+		return r;
+	}
+
+	bool opEquals(Quadratic r) const pure nothrow
+	{
+		assert(d == r.d);
 		return a == r.a && b == r.b;
 	}
 
-	bool opEquals(int r) const
+	bool opEquals(int r) const pure nothrow
 	{
 		return a == r && b == 0;
 	}
 
-	int opCmp(Quadratic r) const
-	{
-		assert(false, "TODO");
-	}
-
 	/** returns largest integer <= this */
-	Integer floor() @property
+	static if(is(T == Rational))
 	{
-		if(d.sign != 1)
-			throw new Exception("floor is not defined in imaginary quadratic fields");
+		Integer floor() const pure nothrow @property
+		{
+			if(d.sign != 1)
+				throw new Exception("floor is not defined in imaginary quadratic fields");
 
-		Integer x = a.denom*b.num;
-		x = isqrt(x*x*d); // this root is never exact...
+			Integer x = a.denom*b.num;
+			x = isqrt(x*x*d); // this root is never exact...
 
-		if(a.denom.sign * b.num.sign == -1)
-			x = (-1)-x; // ... therefore the "-1" is always necessary
+			if(a.denom.sign * b.num.sign == -1)
+				x = (-1)-x; // ... therefore the "-1" is always necessary
 
-		return (x + a.num * b.denom) / (a.denom*b.denom);
+			return (x + a.num * b.denom) / (a.denom*b.denom);
+		}
 	}
+}
+
+unittest
+{
+	import math.numtheory;
+	alias Q = Quadratic!IntMod;
+	long p = 17;
+	auto d = IntMod(3, p); // thats a non-square so the quadratic field is GF(17^^2)
+	auto x = Q(IntMod(1,p), IntMod(1,p), d);
+	assert(x^^(p*p-2) == x.inverse);
 }
