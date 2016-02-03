@@ -43,6 +43,23 @@ long addmod(long a, long b, long m) pure nothrow
 }
 
 /**
+ * calculate (a - b) % m
+ * (without the overflow problems of the naive expression)
+ * conditions: m > 0 and 0 <= a,b,result < m
+ */
+long submod(long a, long b, long m) pure nothrow
+{
+	assert(m > 0);
+	assert(0 <= a && a < m);
+	assert(0 <= b && b < m);
+
+	if(a >= b)
+		return a-b;
+	else
+		return a-b+m;
+}
+
+/**
  * calculate (a * b) % m
  * (without the overflow problems of the naive expression)
  * conditions: m > 0 and 0 <= a,b,result < m
@@ -76,7 +93,7 @@ long powmod(long a, long b, long m) pure nothrow
 
 	if(b < 0)
 	{
-		a = modinv(a, m);
+		a = invmod(a, m);
 		b = -b;
 	}
 
@@ -92,7 +109,7 @@ long powmod(long a, long b, long m) pure nothrow
  * conditions: m > 0 and 0 <= a,result < m
  * triggers division by zero if gcd(x, m) != 1
  */
-long modinv(long a, long m) pure nothrow
+long invmod(long a, long m) pure nothrow
 {
 	assert(m > 0);
 	assert(0 <= a && a < m);
@@ -118,6 +135,95 @@ long modinv(long a, long m) pure nothrow
 		b1 += m;
 	assert(0 <= b1 && b1 < m);
 	return b1;
+}
+
+/**
+ * congruence classes of the form [x] = x + nZ
+ * (with 0 <= x < n by convention)
+ */
+struct IntMod
+{
+	long x;
+	long n;
+
+	this(long x, long n) pure nothrow
+	{
+		assert(n > 0);
+		assert(0 <= x && x < n);
+		this.x = x;
+		this.n = n;
+	}
+
+	static IntMod make(long x, long n) pure nothrow
+	{
+		assert(n > 0);
+		return IntMod((x%n+n)%n,n);
+	}
+
+	/** (additive) inverse */
+	IntMod opUnary(string op)() const pure nothrow
+		if(op == "-")
+	{
+		if(x == 0)
+			return this;
+		else
+			return IntMod(n-x, n);
+	}
+
+	/** (multiplicative) inverse */
+	IntMod inverse() const @property pure nothrow
+	{
+		return IntMod(invmod(x, n), n);
+	}
+
+	IntMod opBinary(string op)(int b) const pure nothrow
+		if(op == "+" || op == "-" || op == "*" || op == "/")
+	{
+		return opBinary!op(make(b, n));
+	}
+
+	IntMod opBinary(string op)(IntMod b) const pure nothrow
+		if(op == "+" || op == "-" || op == "*" || op == "/")
+	{
+		assert(n == b.n);
+
+		final switch(op)
+		{
+			case "+": return IntMod(addmod(x, b.x, n), n);
+			case "-": return IntMod(submod(x, b.x, n), n);
+			case "*": return IntMod(mulmod(x, b.x, n), n);
+			case "/": return IntMod(mulmod(x, invmod(b.x, n), n), n);
+		}
+	}
+
+	IntMod opBinary(string op)(int e) const pure nothrow
+		if(op == "^^")
+	{
+		return IntMod(powmod(x, e, n), n);
+	}
+
+	bool opEquals(int b) const pure nothrow
+	{
+		return opEquals(make(b, n));
+	}
+
+	bool opEquals(IntMod b) const pure nothrow
+	{
+		assert(n == b.n);
+		return x == b.x;
+	}
+
+	string toString() const pure nothrow @property
+	{
+		return "["~to!string(x)~"]";
+	}
+}
+
+unittest
+{
+	auto x = IntMod(3,17);
+	auto y = IntMod(5,17);
+	assert(x*y/y == 3);
 }
 
 
