@@ -4,6 +4,8 @@ module math.gmp;
  * binding for the GNU Multiple Precision Arithmetic Library.
  */
 
+public import core.stdc.config : c_long, c_ulong;
+
 /**
  * convenience wrapper for a (mutable) GMP integer.
  */
@@ -29,25 +31,6 @@ final class GmpInteger
 
 
 extern(C):
-
-version(Windows)
-{
-	alias int c_long;
-	alias uint c_ulong;
-}
-else
-{
-	static if((void*).sizeof > int.sizeof)
-	{
-		alias long c_long;
-		alias ulong c_ulong;
-	}
-	else
-	{
-		alias int c_long;
-		alias uint c_ulong;
-	}
-}
 
 alias c_ulong mp_bitcnt_t;
 

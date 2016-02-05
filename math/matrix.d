@@ -147,6 +147,9 @@ class Matrix(T)
 		return Matrix!T(rhs.assumeUnique);
 	}
 
+	static if(is(T == float) || is(T == double) || is(T == Complex!float) || is(T == Complex!double))
+	{
+
 	/** compute (complex) eigenvalues of this */
 	Array!(ComplexType!T) eigenvalues()
 	{
@@ -193,6 +196,8 @@ class Matrix(T)
 		return w;
 	}
 
+	}
+
 	static auto opCall(Slice!(immutable(T), 2) data)
 	{
 		return new DenseMatrix!T(data);
@@ -203,15 +208,15 @@ class Matrix(T)
 		return new DenseMatrix!T(Slice!(immutable(T), 2)(height, width, data));
 	}
 
-	static auto random(size_t height, size_t width)
+	static DenseMatrix!T random(size_t height, size_t width)
 	{
 		static if(isFloatingPoint!T)
 			return build!((i,j)=> cast(T)uniform(-1.0, 1.0))(height, width);
 		else
-			assert(false, "no suitable random distribution known");
+			return build!((i,j)=> T.random())(height, width);
 	}
 
-	static auto random(Ring)(size_t height, size_t width, Ring ring)
+	static DenseMatrix!T random(Ring)(size_t height, size_t width, Ring ring)
 	{
 		auto data = Slice2!T(height, width);
 		for(size_t j = 0; j < width; ++j)
@@ -220,7 +225,7 @@ class Matrix(T)
 		return new DenseMatrix!T(data.assumeUnique);
 	}
 
-	static auto build(alias fun)(size_t h, size_t w)
+	static DenseMatrix!T build(alias fun)(size_t h, size_t w)
 	{
 		auto data = Slice2!T(h, w);
 		for(size_t j = 0; j < w; ++j)
@@ -230,7 +235,7 @@ class Matrix(T)
 	}
 
 	/** only explicitly genrates upper/right half */
-	static auto buildSymmetric(alias fun)(size_t n)
+	static DenseMatrix!T buildSymmetric(alias fun)(size_t n)
 	{
 		auto data = Slice2!T(n, n);
 		for(size_t j = 0; j < n; ++j)
@@ -243,7 +248,7 @@ class Matrix(T)
 		return new DenseMatrix!T(data.assumeUnique);
 	}
 
-	static auto buildBand(alias fun)(size_t n, int kl, int ku)
+	static BandMatrix!T buildBand(alias fun)(size_t n, int kl, int ku)
 	{
 		assert(kl >= 0 && ku >= 0);
 		auto data = Slice2!T(kl+ku+1, n);
@@ -254,7 +259,7 @@ class Matrix(T)
 	}
 
 	/** only explicitly genrates upper/right half */
-	static auto buildSymmetricBand(alias fun)(size_t n, int kd)
+	static BandMatrix!T buildSymmetricBand(alias fun)(size_t n, int kd)
 	{
 		assert(kd >= 0);
 		auto data = Slice2!T(2*kd+1, n);
