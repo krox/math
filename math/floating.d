@@ -6,61 +6,65 @@ private import std.conv : to;
 private import std.exception : assumeUnique;
 private import std.random : unpredictableSeed;
 private import std.typecons : Rebindable;
+private import std.traits;
 private import math.mpfr;
 private import math.gmp;
 
 /**
  * Arbitrary precision floating point type using the GNU MPFR library.
- *
- * Copy-on-write semantics, i.e. every result is newly allocated. This means
- * it should be very compatible with float/double/real but kinda inefficient.
- * May change in future when I figure out a good way to do expression templates
- * or something...
  */
 struct Floating
 {
-	static mpfr_prec_t precision;
+	static mpfr_prec_t precision = 64;
 
 	//////////////////////////////////////////////////////////////////////
-	/// constructors
+	/// constructors / destructors
 	//////////////////////////////////////////////////////////////////////
 
-	this(immutable MpfrFloat z)
+	this(this)
+	{
+		if(z.mpfr_d)
+		{
+			mpfr_t old = z;
+			this.z = this.z.init;
+			mpfr_init2(ptr, mpfr_get_prec(&old));
+			mpfr_set(ptr, &old, MPFR_RNDN);
+		}
+	}
+
+	~this()
+	{
+		if(z.mpfr_d)
+			mpfr_clear(ptr);
+	}
+
+	private this(mpfr_t z)
 	{
 		this.z = z;
 	}
 
 	/** constructor for given value */
-	this(int v)
+	this(A)(auto ref A a, mpfr_prec_t prec = precision)
 	{
-		auto r = new MpfrFloat(precision);
-		mpfr_set_si(r.ptr, v, MPFR_RNDN);
-		this(cast(immutable)r);
+		mpfr_init2(ptr, prec);
+		opAssign(a);
 	}
 
-	/** ditto */
-	this(double v)
+	auto opAssign(T)(auto ref T expr)
 	{
-		auto r = new MpfrFloat(precision);
-		mpfr_set_d(r.ptr, v, MPFR_RNDN);
-		this(cast(immutable)r);
-	}
-
-	/** ditto */
-	this(string v)
-	{
-		// TODO: throw exception on bad strings
-		auto r = new MpfrFloat(precision);
-		mpfr_set_str(r.ptr, toStringz(v), 0, MPFR_RNDN);
-		this(cast(immutable)r);
+		if(!z.mpfr_d)
+			mpfr_init2(ptr, precision);
+		expr.toExpr.eval(ptr);
+		return this.toExpr();
 	}
 
 	/** random in [0,1) */
-	static Floating random()
+	static Floating random(mpfr_prec_t prec = precision)
 	{
-		auto r = new MpfrFloat(precision);
-		mpfr_urandomb(r.ptr, &rand);
-		return Floating(cast(immutable)r);
+		mpfr_t z;
+		mpfr_init2(&z, prec);
+		mpfr_urandomb(&z, &rand);
+		return Floating(z);
 	}
 
 
@@ -87,7 +91,7 @@ struct Floating
 
 
 	//////////////////////////////////////////////////////////////////////
-	/// size metric and comparisons
+	/// misc
 	//////////////////////////////////////////////////////////////////////
 
 	bool isNan() const @property
@@ -95,66 +99,27 @@ struct Floating
 		return mpfr_nan_p(ptr) != 0;
 	}
 
-	bool opEquals(T)(T b) const
-	{
-		     static if(is(T == int))      return mpfr_cmp_si(ptr, b) == 0;
-		else static if(is(T == double))   return mpfr_cmp_d(ptr, b) == 0;
-		else static if(is(T == Floating)) return mpfr_equal_p(ptr, b.ptr) != 0;
-		else static assert(false);
-	}
-
-	int opCmp(T)(T b) const
-	{
-		     static if(is(T == int))      return mpfr_cmp_si(ptr, b);
-		else static if(is(T == double))   return mpfr_cmp_d(ptr, b);
-		else static if(is(T == Floating)) return mpfr_cmp(ptr, b.ptr);
-		else static assert(false);
-	}
-
 
 	//////////////////////////////////////////////////////////////////////
 	/// arithmetic operations
 	//////////////////////////////////////////////////////////////////////
 
-	Integer opUnary(string op)() const
-		if(op == "-")
+	auto toExpr() const @property
 	{
-		auto r = new MpfrFloat(precision);
-		mpfr_neg(r.ptr, ptr, MPFR_RNDN);
-		return Floating(cast(immutable)r);
+		return ValueExpr!(const(mpfr_t)*)(ptr);
 	}
 
-	Floating opBinary(string op)(Floating b) const
-	{
-		auto r = new MpfrFloat(precision);
-		mpfrBinary!op(r.ptr, ptr, b.ptr);
-		return Floating(cast(immutable)r);
-	}
-
-	Floating opBinary(string op)(int b) const
-	{
-		auto r = new MpfrFloat(precision);
-		mpfrBinary!op(r.ptr, ptr, b);
-		return Floating(cast(immutable)r);
-	}
-
-	Floating opBinaryRight(string op)(int a) const
-	{
-		auto r = new MpfrFloat(precision);
-		mpfrBinary!op(r.ptr, a, ptr);
-		return Floating(cast(immutable)r);
-	}
-
+	alias toExpr this;
 
 	//////////////////////////////////////////////////////////////////////
 	/// internals
 	//////////////////////////////////////////////////////////////////////
 
-	Rebindable!(immutable(MpfrFloat)) z;
+	mpfr_t z;
 
-	immutable(mpfr_t)* ptr() const @property
+	inout(mpfr_t)* ptr() inout @property
 	{
-		return &z.z;
+		return &z;
 	}
 
 	private static mp_randstate_t rand;
@@ -163,5 +128,262 @@ struct Floating
 	{
 		__gmp_randinit_default(&rand);
 		__gmp_randseed_ui(&rand, unpredictableSeed);
+	}
+}
+
+private string unaryDecl(string name)
+{
+	return "auto "~name~"(A)(auto ref A a)"
+	"{ return UnaryExpr!(\""~name~"\", typeof(a.toExpr()))(a.toExpr());}";
+}
+
+// rounding
+mixin(unaryDecl("abs"));
+mixin(unaryDecl("round"));
+mixin(unaryDecl("trunc"));
+mixin(unaryDecl("ceil"));
+mixin(unaryDecl("floor"));
+mixin(unaryDecl("frac"));
+
+// trigonometry
+mixin(unaryDecl("sin"));
+mixin(unaryDecl("cos"));
+mixin(unaryDecl("tan"));
+mixin(unaryDecl("cot"));
+mixin(unaryDecl("sec"));
+mixin(unaryDecl("csc"));
+
+// hyperbolic trigonometry
+mixin(unaryDecl("sinh"));
+mixin(unaryDecl("cosh"));
+mixin(unaryDecl("tanh"));
+mixin(unaryDecl("coth"));
+mixin(unaryDecl("sech"));
+mixin(unaryDecl("csch"));
+
+// inverse trigonometry
+mixin(unaryDecl("asin"));
+mixin(unaryDecl("acos"));
+mixin(unaryDecl("atan"));
+mixin(unaryDecl("asinh"));
+mixin(unaryDecl("acosh"));
+mixin(unaryDecl("atanh"));
+
+// roots and squares
+mixin(unaryDecl("sqrt"));
+mixin(unaryDecl("cbrt"));
+mixin(unaryDecl("sqr"));
+mixin(unaryDecl("rec_sqrt"));
+
+// exponential and logarithm
+mixin(unaryDecl("log"));
+mixin(unaryDecl("log2"));
+mixin(unaryDecl("log10"));
+mixin(unaryDecl("log1p"));
+mixin(unaryDecl("exp"));
+mixin(unaryDecl("exp2"));
+mixin(unaryDecl("exp10"));
+mixin(unaryDecl("expm1"));
+
+// other special functions
+mixin(unaryDecl("eint"));
+mixin(unaryDecl("li2"));
+mixin(unaryDecl("erf"));
+mixin(unaryDecl("erfc"));
+mixin(unaryDecl("gamma"));
+mixin(unaryDecl("lngamma"));
+mixin(unaryDecl("lgamma"));
+mixin(unaryDecl("digamma"));
+mixin(unaryDecl("zeta"));
+mixin(unaryDecl("j0"));
+mixin(unaryDecl("j1"));
+mixin(unaryDecl("y0"));
+mixin(unaryDecl("y1"));
+mixin(unaryDecl("ai"));
+
+
+private string binaryDecl(string name)
+{
+	return "auto "~name~"(A, B)(auto ref A a, auto ref B b)"
+	"{ return BinaryExpr!(\""~name~"\", typeof(a.toExpr()), typeof(b.toExpr()))"
+	"(a.toExpr(), b.toExpr());}";
+}
+
+mixin(binaryDecl("pow"));
+mixin(binaryDecl("agm"));
+mixin(binaryDecl("reldiff"));
+mixin(binaryDecl("fmod"));
+mixin(binaryDecl("atan2"));
+mixin(binaryDecl("hypot")); // sqrt(a*a + b*b)
+mixin(binaryDecl("min"));
+mixin(binaryDecl("max"));
+mixin(binaryDecl("dim")); // abs(a - b)
+
+private int compare(A, B)(auto ref A _a, auto ref B _b)
+{
+	static if(is(A T : ValueExpr!T))
+		alias a = _a;
+	else
+		Floating a = _a;
+
+	static if(is(B U : ValueExpr!U))
+		alias b = _b;
+	else
+		Floating b = _b;
+
+	return mpfrCompare(a.val, b.val);
+}
+
+/** "base class" for all expressions */
+template Expr()
+{
+	auto toExpr()
+	{
+		return this;
+	}
+
+	enum this_is_a_mpfr_expression = true;
+
+	auto opUnary(string op)()
+	{
+		return UnaryExpr!(op,typeof(this))(this);
+	}
+
+	auto opBinary(string op, B)(auto ref B b)
+	{
+		return BinaryExpr!(op, typeof(this), typeof(b.toExpr()))(this, b.toExpr());
+	}
+
+	bool opEquals(T)(auto ref T b) const
+	{
+		return compare(this, b.toExpr()) == 0;
+	}
+
+	int opCmp(T)(auto ref T b) const
+	{
+		return compare(this, b.toExpr());
+	}
+}
+
+/** a (read-only) mpfr value or a builtin type */
+struct ValueExpr(T)
+{
+	mixin Expr;
+
+	T val;
+
+	void eval(mpfr_t* dest)
+	{
+		mpfrUnary!"set"(dest, val);
+	}
+}
+
+auto toExpr(A)(A a)
+	if(isFloatingPoint!A || isSigned!A || isUnsigned!A)
+{
+	return ValueExpr!A(a);
+}
+
+/** unary expression, including one parameter functions */
+struct UnaryExpr(string op, A)
+{
+	mixin Expr;
+
+	A a;
+
+	void eval(mpfr_t* dest)
+	{
+		static if(is(A T : ValueExpr!T))
+		{
+			mpfrUnary!op(dest, a.val);
+		}
+		else
+		{
+			a.eval(dest);
+			mpfrUnary!op(dest, dest);
+		}
+	}
+}
+
+/** binary expression */
+struct BinaryExpr(string op, A, B)
+{
+	mixin Expr;
+
+	A a;
+	B b;
+
+	void eval(mpfr_t* dest)
+	{
+		// Value <-> Value
+		static if(is(A T : ValueExpr!T) && is(B U : ValueExpr!U))
+		{
+			mpfrBinary!op(dest, a.val, b.val);
+		}
+
+		// Value <-> Expression
+		else static if(is(A V : ValueExpr!V))
+		{
+			static if(is(V : const(mpfr_t)*))
+			{
+				if(a.val is dest)
+				{
+					mpfr_t tmp;
+					mpfr_init2(&tmp, mpfr_get_prec(dest));
+					b.eval(&tmp);
+					mpfrBinary!op(dest, a.val, &tmp);
+					mpfr_clear(&tmp);
+				}
+				else
+				{
+					b.eval(dest);
+					mpfrBinary!op(dest, a.val, dest);
+				}
+			}
+			else
+			{
+				b.eval(dest);
+				mpfrBinary!op(dest, a.val, dest);
+			}
+		}
+
+		// Expression <-> Value
+		else static if(is(B V : ValueExpr!V))
+		{
+			static if(is(V : const(mpfr_t)*))
+			{
+				if(b.val is dest)
+				{
+					mpfr_t tmp;
+					mpfr_init2(&tmp, mpfr_get_prec(dest));
+					a.eval(&tmp);
+					mpfrBinary!op(dest, &tmp, b.val);
+					mpfr_clear(&tmp);
+				}
+				else
+				{
+					a.eval(dest);
+					mpfrBinary!op(dest, dest, b.val);
+				}
+			}
+			else
+			{
+				a.eval(dest);
+				mpfrBinary!op(dest, dest, b.val);
+			}
+		}
+
+		// Expression <-> Expression
+		else
+		{
+			a.eval(dest);
+
+			mpfr_t tmp;
+			mpfr_init2(&tmp, mpfr_get_prec(dest));
+			b.eval(&tmp);
+
+			mpfrBinary!op(dest, dest, &tmp);
+			mpfr_clear(&tmp);
+		}
 	}
 }

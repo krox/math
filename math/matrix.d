@@ -18,9 +18,9 @@ class Matrix(T)
 
 	abstract size_t width() const @property;
 
-	abstract T opIndex(size_t i, size_t j) const;
+	abstract ref const(T) opIndex(size_t i, size_t j) const;
 
-	final T opIndex(size_t i) const
+	final ref const(T) opIndex(size_t i) const
 	{
 		if(width == 1)
 			return this[i,0];
@@ -70,6 +70,16 @@ class Matrix(T)
 		return s;
 	}
 
+	/** return squared L2 norm */
+	final T norm2() const @property
+	{
+		T sum = 0;
+		for(size_t j = 0; j < width; ++j)
+			for(size_t i = 0; i < height; ++i)
+				sum = sum + this[i,j]*this[i,j];
+		return sum;
+	}
+
 	final Matrix opBinary(string op)(Matrix b) const
 		if(op == "+" || op == "-")
 	{
@@ -77,8 +87,8 @@ class Matrix(T)
 			throw new Exception("matrix dimension mismatch");
 
 		auto a = Slice2!T(height, b.width);
-		for(size_t i = 0; i < height; ++i)
-			for(size_t j = 0; j < b.width; ++j)
+		for(size_t j = 0; j < b.width; ++j)
+			for(size_t i = 0; i < height; ++i)
 			{
 				a[i,j] = mixin("this[i,j] "~op~" b[i,j]");
 			}
@@ -315,7 +325,7 @@ final class DenseMatrix(T) : Matrix!T
 		return data.size[1];
 	}
 
-	override T opIndex(size_t i, size_t j) const
+	override ref const(T) opIndex(size_t i, size_t j) const
 	{
 		return data[i,j];
 	}
@@ -348,7 +358,7 @@ final class BandMatrix(T) : Matrix!T
 		return data.size[1];
 	}
 
-	override T opIndex(size_t i, size_t j) const
+	override ref const(T) opIndex(size_t i, size_t j) const
 	{
 		if(i+ku < j || i > j+kl)
 			return T(0);

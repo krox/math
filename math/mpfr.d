@@ -10,32 +10,33 @@ private import math.gmp;
 
 
 /**
- * convenience wrapper for a (mutable) MPFR float.
- */
-final class MpfrFloat
-{
-	mpfr_t z;
-
-	inout(mpfr_t)* ptr() inout @property
-	{
-		return &z;
-	}
-
-	this(mpfr_prec_t prec)
-	{
-        mpfr_init2(&z, prec);
-	}
-
-	~this()
-	{
-		mpfr_clear(&z);
-	}
-}
-
-/**
  * overloaded template version of mpfr_*(dest, a, b, rnd)
  * a and a can be any combination of mpfr_t* / int / uint / double / ..
  */
+int mpfrUnary(string op, A)(mpfr_t* dest, const A a, mpfr_rnd_t rnd = MPFR_RNDN)
+{
+	     static if(op == "-") enum opName = "neg";
+	else static if(op == "+") enum opName = "set";
+	else enum opName = op;
+
+	// mpfr
+	static if(is(A : const(mpfr_t)*))
+		enum funName = opName;
+
+	// builtin
+	else static if(isFloatingPoint!A)
+		enum funName = opName~"_d";
+	else static if(isUnsigned!A)
+		enum funName = opName~"_ui";
+	else static if(isSigned!A)
+		enum funName = opName~"_si";
+
+	else static assert(false);
+
+	return mixin("mpfr_"~funName)(dest, a, rnd);
+}
+
+/** ditto */
 int mpfrBinary(string op, A, B)(mpfr_t* dest, const A a, const B b, mpfr_rnd_t rnd = MPFR_RNDN)
 {
 	     static if(op == "+") enum opName = "add";
@@ -67,6 +68,32 @@ int mpfrBinary(string op, A, B)(mpfr_t* dest, const A a, const B b, mpfr_rnd_t r
 	else static assert(false);
 
 	return mixin("mpfr_"~funName)(dest, a, b, rnd);
+}
+
+/** ditto */
+int mpfrCompare(A, B)(const A a, const B b, mpfr_rnd_t rnd = MPFR_RNDN)
+{
+	// mpfr <-> mpfr
+	static if(is(A : const(mpfr_t)*) && is(B : const(mpfr_t)*))
+		return mpfr_cmp(a, b);
+
+	// mpfr <-> builtin
+	else static if(is(A : const(mpfr_t)*) && isFloatingPoint!B)
+		return mpfr_cmp_d(a, b);
+	else static if(is(A : const(mpfr_t)*) && isUnsigned!B)
+		return mpfr_cmp_ui(a, b);
+	else static if(is(A : const(mpfr_t)*) && isSigned!B)
+		return mpfr_cmp_si(a, b);
+
+	// builtin <-> mpfr
+	else static if(isFloatingPoint!A && is(B : const(mpfr_t)*))
+		return -mpfr_cmp_d(b, a);
+	else static if(isUnsigned!A && is(B : const(mpfr_t)*))
+		return -mpfr_cmp_ui(b, a);
+	else static if(isSigned!A && is(B : const(mpfr_t)*))
+		return -mpfr_cmp_si(b, a);
+
+	else static assert(false);
 }
 
 /**
