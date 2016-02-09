@@ -33,7 +33,10 @@ int mpfrUnary(string op, A)(mpfr_t* dest, const A a, mpfr_rnd_t rnd = MPFR_RNDN)
 
 	else static assert(false);
 
-	return mixin("mpfr_"~funName)(dest, a, rnd);
+	static if(op == "round" || op == "trunc" || op == "floor" || op == "ceil")
+		return mixin("mpfr_"~funName)(dest, a);
+	else
+		return mixin("mpfr_"~funName)(dest, a, rnd);
 }
 
 /** ditto */
