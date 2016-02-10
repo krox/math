@@ -19,7 +19,7 @@ private import std.range;
 private import std.exception;
 private import std.format;
 private import std.functional : unaryFun;
-
+private import math.numberfield : Quadratic;
 
 //////////////////////////////////////////////////////////////////////
 /// modular arithmetic
@@ -196,7 +196,7 @@ struct IntMod
 		}
 	}
 
-	IntMod opBinary(string op)(int e) const pure nothrow
+	IntMod opBinary(string op)(long e) const pure nothrow
 		if(op == "^^")
 	{
 		return IntMod(powmod(x, e, n), n);
@@ -217,6 +217,39 @@ struct IntMod
 	{
 		return "["~to!string(x)~"]";
 	}
+
+	byte jacobi() const pure nothrow
+	{
+		assert(n % 2 != 0);
+		return .jacobi(x, n);
+	}
+}
+
+/**
+ * modular square-root implemented using Cipolla's algorithm.
+ * Only works for prime fields.
+ */
+IntMod sqrt(IntMod a)
+{
+	assert(isPrime(a.n));
+
+	if(a.n == 2)
+		return a;
+
+	assert(jacobi(a.x, a.n) == 1);
+
+	if(a.n % 4 == 3)
+		return a ^^ ((a.n+1)/4);
+
+	auto z = IntMod(0, a.n);
+	while((z*z-a).jacobi() != -1)
+		++z.x;
+	auto omega = z*z-a;
+
+	auto b = Quadratic!IntMod(z, IntMod(1,a.n), omega);
+	b = b ^^ ((a.n+1)/2);
+	assert(b.b == 0);
+	return b.a;
 }
 
 unittest
@@ -657,6 +690,44 @@ long phi(long n)
 	foreach(p; factor(n))
 		n = n/p[0]*(p[0]-1);
 	return n;
+}
+
+/** Jacobi symbol (a/n) defined for any odd integer n */
+byte jacobi(long a, long n) pure nothrow
+{
+	assert(n > 0 &&  n % 2 == 1);
+
+	a %= n;
+	if(a < 0)
+		a += n;
+	if(n == 1)
+		return 1;
+
+	byte r = 1;
+	while(true)
+	{
+		if(a == 0)
+			return 0;
+
+		if(a == 1)
+			return r;
+
+		if ((a & 1) == 0)
+		{
+			if(n % 8 == 3 || n % 8 == 5)
+				r = -r;
+
+			a /= 2;
+		}
+		else
+		{
+			if(a % 4 == 3 && n % 4 == 3)
+				r = -r;
+
+			swap(a, n);
+			a %= n;
+		}
+	}
 }
 
 //////////////////////////////////////////////////////////////////////
