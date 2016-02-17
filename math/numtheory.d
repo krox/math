@@ -18,7 +18,7 @@ private import std.algorithm;
 private import std.range;
 private import std.exception;
 private import std.format;
-private import std.functional : unaryFun;
+private import std.functional : unaryFun, binaryFun;
 private import math.numberfield : Quadratic;
 
 //////////////////////////////////////////////////////////////////////
@@ -679,18 +679,66 @@ unittest
 /// number theoretic functions
 //////////////////////////////////////////////////////////////////////
 
-
-// TODO: templated function for general multiplicative functions
-
-/**
- * Euler's totient function.
- */
-long phi(long n)
+/** returns largest k such that p^k divides n */
+int powerOf(long n, long p)
 {
-	foreach(p; factor(n))
-		n = n/p[0]*(p[0]-1);
-	return n;
+	assert(n > 0);
+	assert(p > 1);
+
+	int r = 0;
+	while(n % p == 0)
+	{
+		++r;
+		n /= p;
+	}
+	return r;
 }
+
+struct MultiplicativeFunction(alias fun)
+{
+	static:
+
+	alias f = binaryFun!(fun, "p", "e");
+
+	private Array!long table;
+
+	void makeTable(long limit)
+	{
+		if(limit < cast(long)table.length)
+			return;
+
+		table.assign(limit+1, 1);
+		foreach(p; primesBelow(limit+1))
+			for(long x = p; x < table.length; x += p)
+				table[x] *= f(p, powerOf(x, p));
+	}
+
+	/** compute f(n) by building a table of all values up to n */
+	long opIndex(long n)
+	{
+		assert(n > 0);
+		if(n >= table.length)
+			makeTable(max(n, 2*table.length));
+
+		return table[n];
+	}
+
+	/** compute f(n) by factoring n */
+	long opCall(long n)
+	{
+		assert(n > 0);
+		long r = 1;
+		foreach(i; factor(n))
+			r *= f(i[0], i[1]);
+		return r;
+	}
+}
+
+/** Euler's totient function */
+alias phi = MultiplicativeFunction!"p^^(e-1)*(p-1)";
+
+/** radical function */
+alias rad = MultiplicativeFunction!"p";
 
 /** Jacobi symbol (a/n) defined for any odd integer n */
 byte jacobi(long a, long n) pure nothrow
