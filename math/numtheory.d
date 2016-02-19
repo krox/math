@@ -176,7 +176,7 @@ struct IntMod
 		return IntMod(invmod(x, n), n);
 	}
 
-	IntMod opBinary(string op)(int b) const pure nothrow
+	IntMod opBinary(string op)(long b) const pure nothrow
 		if(op == "+" || op == "-" || op == "*" || op == "/")
 	{
 		return opBinary!op(make(b, n));
@@ -690,6 +690,21 @@ int powerOf(long n, long p)
 	{
 		++r;
 		n /= p;
+	}
+	return r;
+}
+
+/** returns floor(log_b(n)) */
+int logi(long n, long b)
+{
+	assert(n > 0);
+	assert(b > 1);
+
+	int r = 0;
+	while(n >= b)
+	{
+		++r;
+		n /= b;
 	}
 	return r;
 }
