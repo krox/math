@@ -277,7 +277,7 @@ Array!long calculatePrimesBelow(long n)
 	long limit = cast(long)sqrt(cast(double)n) + 1;
 	assert(limit*limit > n); // not sure about floating-point rounding for very large n ...
 
-	// excluding 2 and 3 as special cases, all primes have the form 5*k +- 1
+	// excluding 2 and 3 as special cases, all primes have the form 6*k +- 1
 	auto b5 = BitArray(cast(size_t)n/6); // b5[k] represents 6*k+5
 	auto b7 = BitArray(cast(size_t)n/6); // b7[k] represents 6*k+7
 
@@ -621,7 +621,7 @@ long factorial(long n) pure nothrow
  * calculate a binomial coefficient
  * (n over k) = n! / (k! * (n-k)!)
  */
-long binomial(long n, long k)
+long binomial(long n, long k) pure nothrow
 {
 	assert(0 <= n);
 	assert(0 <= k && k <= n);
@@ -647,7 +647,7 @@ long binomial(long n, long k)
  * Bernoulli numbers which are not whole numbers so I need to think about a
  * beautiful way to write that (without rounding or actual rational arithmetic)
  */
-long powerSum(long k, long n)
+long powerSum(long k, long n) pure nothrow
 {
 	assert(0 <= n);
 
@@ -676,26 +676,11 @@ unittest
 
 
 //////////////////////////////////////////////////////////////////////
-/// number theoretic functions
+/// rounded real functions
 //////////////////////////////////////////////////////////////////////
 
-/** returns largest k such that p^k divides n */
-int powerOf(long n, long p)
-{
-	assert(n > 0);
-	assert(p > 1);
-
-	int r = 0;
-	while(n % p == 0)
-	{
-		++r;
-		n /= p;
-	}
-	return r;
-}
-
 /** returns floor(log_b(n)) */
-int logi(long n, long b)
+int logi(long n, long b) pure nothrow
 {
 	assert(n > 0);
 	assert(b > 1);
@@ -709,14 +694,46 @@ int logi(long n, long b)
 	return r;
 }
 
-struct MultiplicativeFunction(alias fun)
+/** returns floor(sqrt(a)) */
+long sqrti(long a) pure nothrow
+{
+	assert(a >= 0);
+	auto r = cast(long)sqrt(cast(real)a);
+	assert(r*r <= a && a < (r+1)*(r+1)); // not sure about rounding, so check...
+	return r;
+}
+
+
+//////////////////////////////////////////////////////////////////////
+/// number theoretic functions
+//////////////////////////////////////////////////////////////////////
+
+/** returns largest k such that p^k divides n */
+int powerOf(long n, long p) pure nothrow
+{
+	assert(n > 0);
+	assert(p > 1);
+
+	int r = 0;
+	while(n % p == 0)
+	{
+		++r;
+		n /= p;
+	}
+	return r;
+}
+
+struct MultiplicativeFunction(alias fun, alias mult = "a*b")
 {
 	static:
 
+	enum tableLimit = 1_000_000L;
 	alias f = binaryFun!(fun, "p", "e");
+	alias mul = binaryFun!(mult, "a", "b");
 
 	private Array!long table;
 
+	/** make a table of all values n <= limit */
 	void makeTable(long limit)
 	{
 		if(limit < cast(long)table.length)
@@ -725,26 +742,30 @@ struct MultiplicativeFunction(alias fun)
 		table.assign(limit+1, 1);
 		foreach(p; primesBelow(limit+1))
 			for(long x = p; x < table.length; x += p)
-				table[x] *= f(p, powerOf(x, p));
+				table[x] = mul(table[x], f(p, powerOf(x, p)));
 	}
 
-	/** compute f(n) by building a table of all values up to n */
-	long opIndex(long n)
-	{
-		assert(n > 0);
-		if(n >= table.length)
-			makeTable(max(n, 2*table.length));
-
-		return table[n];
-	}
-
-	/** compute f(n) by factoring n */
+	/** compute f(n) */
 	long opCall(long n)
 	{
 		assert(n > 0);
+
+		// already computed value
+		if(n < table.length)
+			return table[n];
+
+		// automatically extend table
+		if(n <= tableLimit)
+		{
+			makeTable(min(tableLimit, max(n, 2*table.length)));
+			assert(n < table.length);
+			return table[n];
+		}
+
+		// exceed table limit -> compute by explicit factoring
 		long r = 1;
 		foreach(i; factor(n))
-			r *= f(i[0], i[1]);
+			r = mul(r, f(i[0], i[1]));
 		return r;
 	}
 }
@@ -752,8 +773,21 @@ struct MultiplicativeFunction(alias fun)
 /** Euler's totient function */
 alias phi = MultiplicativeFunction!"p^^(e-1)*(p-1)";
 
+/** Carmichael function / reduced totient function */
+alias carmichael = MultiplicativeFunction!("(p==2 && e > 2) ? 2L^^(e-2) : p^^(e-1)*(p-1)", lcm);
+
 /** radical function */
 alias rad = MultiplicativeFunction!"p";
+
+unittest
+{
+	import std.algorithm : equal;
+	import std.range : iota;
+
+	assert(equal(map!phi(iota(1,21)), [1,1,2,2,4,2,6,4,6,4,10,4,12,6,8,8,16,6,18,8][]));
+	assert(equal(map!carmichael(iota(1,21)), [1,1,2,2,4,2,6,2,6,4,10,2,12,6,4,4,16,6,18,4][]));
+	assert(equal(map!rad(iota(1,21)), [1,2,3,2,5,6,7,2,3,10,11,6,13,14,15,2,17,6,19,10][]));
+}
 
 /** Jacobi symbol (a/n) defined for any odd integer n */
 byte jacobi(long a, long n) pure nothrow
@@ -793,10 +827,6 @@ byte jacobi(long a, long n) pure nothrow
 	}
 }
 
-//////////////////////////////////////////////////////////////////////
-/// other stuff not fitting in the above categories
-//////////////////////////////////////////////////////////////////////
-
 /**
  * calculate greatest common divisor of a and b.
  * Sign of a and b is ignored, result is always >= 0.
@@ -814,6 +844,40 @@ long gcd(long a, long b) pure nothrow
 			return a>=0?a:-a;
 		a %= b;
 	}
+}
+
+/**
+ * calculate least common multiple of a and b.
+ * Sign of a and b is ignored, result is always >= 0.
+ * Convention: lcm(0,x) = 0 = lcm(x,0).
+ */
+long lcm(long a, long b) pure nothrow
+{
+	if(a == 0 || b == 0)
+		return 0;
+	else
+		return a/gcd(a,b)*b;
+}
+
+/**
+ * determine if a is square-free (i.e. not divisable by a square other than 1)
+ */
+bool isSquareFree(long a)
+{
+	foreach(p; primesBelow(sqrti(a)+1))
+		if(a % (p*p) == 0)
+			return false;
+
+	return true;
+}
+
+/** determine if a is a perfect square */
+bool isSquare(long a) pure nothrow
+{
+	if(a < 0)
+		return false;
+	auto r = sqrti(a);
+	return r*r == a;
 }
 
 /**
