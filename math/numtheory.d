@@ -202,6 +202,23 @@ struct IntMod
 		return IntMod(powmod(x, e, n), n);
 	}
 
+	bool compatible(IntMod b) const pure nothrow
+	{
+		return (x - b.x) % gcd(n, b.n) == 0;
+	}
+
+	/** chinese remainder */
+	IntMod opBinary(string op)(IntMod b) const pure
+		if(op == "&")
+	{
+		// TODO: this is not overflow-safe
+		long y, z;
+		long d = euclid(n, b.n, y, z);
+		if((x-b.x) % d != 0)
+			throw new Exception(format("no solution: (%s %% %s) & (%s %% %s)", x, n, b.x, b.n));
+		return make(x - (x - b.x)/d*y*n, n*b.n/d);
+	}
+
 	bool opEquals(int b) const pure nothrow
 	{
 		return opEquals(make(b, n));
@@ -843,6 +860,46 @@ long gcd(long a, long b) pure nothrow
 		if(b == 0)
 			return a>=0?a:-a;
 		a %= b;
+	}
+}
+
+/**
+ * extended euclid algorithm
+ * returns gcd(a,b) = x*a + y*b
+ * result >= 0
+ * limitations: a,b != 0
+ */
+long euclid(long a, long b, ref long x, ref long y) pure nothrow
+{
+	assert(a != 0 && b != 0);
+
+	long a0 = a, x0 = 1, y0 = 0;
+	long a1 = b, x1 = 0, y1 = 1;
+
+	while(a1 != 0)
+	{
+		long q = a0/a1;
+
+		long a2 = a0 - q*a1;
+		long x2 = x0 - q*x1;
+		long y2 = y0 - q*y1;
+
+		a0 = a1, a1 = a2;
+		x0 = x1, x1 = x2;
+		y0 = y1, y1 = y2;
+	}
+
+	if(a0 < 0)
+	{
+		x = -x0;
+		y = -y0;
+		return -a0;
+	}
+	else
+	{
+		x = x0;
+		y = y0;
+		return a0;
 	}
 }
 
