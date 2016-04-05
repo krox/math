@@ -19,8 +19,6 @@ struct Histogram
     double min = double.infinity;
     double max = -double.infinity;
 
-    alias hist this;
-
     this(double low, double high, int nBins)
     {
         this.low = low;
@@ -55,12 +53,22 @@ struct Histogram
         return sum2/count - sum/count*sum/count;
     }
 
+    /** iterate over center-of-bin / count-of-bin */
+    int opApply(int delegate(double, double) dg) const
+    {
+        int r = 0;
+        foreach(i, x; hist)
+            if((r = dg(low + (i+0.5)*(high-low)/nBins, x)) != 0)
+                break;
+        return r;
+    }
+
     void write() const
     {
         if(countLow)
             writefln("<:\t%s", countLow);
-        for(int i = 0; i < nBins; ++i)
-            writefln("%s:\t%s", low + (i+0.5)*(high-low)/nBins, hist[i]);
+        foreach(x, y; this)
+            writefln("%s:\t%s", x, y);
         if(countHigh)
             writefln(">:\t%s", countHigh);
     }

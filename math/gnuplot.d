@@ -4,6 +4,8 @@ private import std.stdio;
 private import std.range;
 private import std.functional;
 
+private import math.histogram;
+
 class Gnuplot
 {
 	private File pipe;
@@ -71,6 +73,20 @@ class Gnuplot
 		if(isInputRange!Range)
 	{
 		return plot(map!"a.x"(vs), map!"a.y"(vs), title, style);
+	}
+
+	void plot(Histogram hist, string title = null)
+	{
+		auto filename = "gnuplot_"~std.conv.to!string(nplots)~".txt";
+		auto f = File(filename, "w");
+		foreach(x, y; hist)
+			f.writef("%s %s\n", x, y);
+		f.close;
+
+		pipe.writef("%s '%s' using 2:xticlabels(1) with histogram title \"%s\"\n",
+			nplots?"replot":"plot", filename, title?title:"histogram");
+		pipe.flush();
+		nplots++;
 	}
 
 	void setXRange(double min, double max)
