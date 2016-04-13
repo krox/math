@@ -364,7 +364,7 @@ immutable(long)[] primesBetween(long a, long b)
 	if(b > limit)
 	{
 		limit = max(b, limit+limit/2);
-		cache = assumeUnique(cast(long[])calculatePrimesBelow(limit));
+		cache = assumeUnique(calculatePrimesBelow(limit).release);
 	}
 
 	return cache[].assumeSorted.upperBound(a-1).lowerBound(b).release;
@@ -740,7 +740,7 @@ int powerOf(long n, long p) pure nothrow
 	return r;
 }
 
-struct MultiplicativeFunction(alias fun, alias mult = "a*b")
+struct MultiplicativeFunction(alias fun, alias mult = "a*b", long neutral = 1)
 {
 	static:
 
@@ -756,7 +756,7 @@ struct MultiplicativeFunction(alias fun, alias mult = "a*b")
 		if(limit < cast(long)table.length)
 			return;
 
-		table.assign(limit+1, 1);
+		table.assign(limit+1, neutral);
 		foreach(p; primesBelow(limit+1))
 			for(long x = p; x < table.length; x += p)
 				table[x] = mul(table[x], f(p, powerOf(x, p)));
@@ -780,12 +780,21 @@ struct MultiplicativeFunction(alias fun, alias mult = "a*b")
 		}
 
 		// exceed table limit -> compute by explicit factoring
-		long r = 1;
+		long r = neutral;
 		foreach(i; factor(n))
 			r = mul(r, f(i[0], i[1]));
 		return r;
 	}
 }
+
+/** number of divisors / sigma_0 */
+alias tau = MultiplicativeFunction!"e+1";
+
+/** sum of divisors / sigma_1 */
+alias sigma = MultiplicativeFunction!"(p^^(e+1) - 1) / (p-1)";
+
+/** sum of square of divisors / sigma_2 */
+alias sigma2 = MultiplicativeFunction!"(p^^(2*e+2) - 1) / (p*p-1)";
 
 /** Euler's totient function */
 alias phi = MultiplicativeFunction!"p^^(e-1)*(p-1)";
@@ -796,14 +805,29 @@ alias carmichael = MultiplicativeFunction!("(p==2 && e > 2) ? 2L^^(e-2) : p^^(e-
 /** radical function */
 alias rad = MultiplicativeFunction!"p";
 
+/** Möbius function */
+alias mu = MultiplicativeFunction!("e==1?-1:0");
+
+/** number of distinct prime factors */
+alias omega = MultiplicativeFunction!("1", "a+b", 0);
+
+/** number of (possibly not distinct) prime factors */
+alias Omega = MultiplicativeFunction!("e", "a+b", 0);
+
 unittest
 {
 	import std.algorithm : equal;
 	import std.range : iota;
 
+	assert(equal(map!tau(iota(1,21)), [1,2,2,3,2,4,2,4,3,4,2,6,2,4,4,5,2,6,2,6][]));
+	assert(equal(map!sigma(iota(1,21)), [1,3,4,7,6,12,8,15,13,18,12,28,14,24,24,31,18,39,20,42][]));
+	assert(equal(map!sigma2(iota(1,21)), [1,5,10,21,26,50,50,85,91,130,122,210,170,250,260,341,290,455,362,546][]));
 	assert(equal(map!phi(iota(1,21)), [1,1,2,2,4,2,6,4,6,4,10,4,12,6,8,8,16,6,18,8][]));
 	assert(equal(map!carmichael(iota(1,21)), [1,1,2,2,4,2,6,2,6,4,10,2,12,6,4,4,16,6,18,4][]));
 	assert(equal(map!rad(iota(1,21)), [1,2,3,2,5,6,7,2,3,10,11,6,13,14,15,2,17,6,19,10][]));
+	assert(equal(map!mu(iota(1,21)), [1,-1,-1,0,-1,1,-1,0,0,1,-1,0,-1,1,1,0,-1,0,-1,0][]));
+	assert(equal(map!omega(iota(1,21)), [0,1,1,1,1,2,1,1,1,2,1,2,1,2,2,1,1,2,1,2][]));
+	assert(equal(map!Omega(iota(1,21)), [0,1,1,2,1,2,1,3,2,2,1,3,1,2,2,4,1,3,1,3][]));
 }
 
 /** Jacobi symbol (a/n) defined for any odd integer n */
