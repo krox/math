@@ -157,6 +157,25 @@ class Matrix(T)
 		return Matrix!T(rhs.assumeUnique);
 	}
 
+	/** ditto, but with QR decomposition instead of LU */
+	Matrix!T solveQR(Matrix!T b)
+	{
+		auto n = cast(int)this.width;
+		if(this.height != n || b.height != n)
+			throw new Exception("invalid matrix dimensions");
+
+		// compute QR decomposition
+		auto m = this.dup;
+		auto beta = new T[this.height];
+		denseComputeQR!T(m, beta);
+
+		// solve it
+		auto rhs = b.dup();
+		denseSolveQR!T(m, beta, rhs);
+
+		return Matrix!T(rhs.assumeUnique);
+	}
+
 	static if(is(T == float) || is(T == double) || is(T == Complex!float) || is(T == Complex!double))
 	{
 
