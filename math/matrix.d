@@ -9,8 +9,8 @@ private import std.functional : binaryFun;
 private import std.algorithm : min, max;
 private import std.random : uniform;
 
-import jive.array;
-private import math.lapacke, math.linear;
+private import jive.array;
+private import math.linear;
 
 class Matrix(T)
 {
@@ -138,93 +138,16 @@ class Matrix(T)
 		return r;
 	}
 
-	/** solve the linear equations this * x = b */
-	Matrix!T solve(Matrix!T b)
+	/** compute LU decomposition */
+	LUDecomposition!T LU()
 	{
-		auto n = cast(int)this.width;
-		if(this.height != n || b.height != n)
-			throw new Exception("invalid matrix dimensions");
-
-		// compute (P)LU decomposition
-		auto m = this.dup;
-		auto p = new int[this.height];
-		denseComputeLU!T(m, p);
-
-		// solve it
-		auto rhs = b.dup(p);
-		denseSolveLU!T(m, rhs);
-
-		return Matrix!T(rhs.assumeUnique);
+		return new LUDecomposition!T(this);
 	}
 
-	/** ditto, but with QR decomposition instead of LU */
-	Matrix!T solveQR(Matrix!T b)
+	/** compute QR decomposition */
+	QRDecomposition!T QR()
 	{
-		auto n = cast(int)this.width;
-		if(this.height != n || b.height != n)
-			throw new Exception("invalid matrix dimensions");
-
-		// compute QR decomposition
-		auto m = this.dup;
-		auto beta = new T[this.height];
-		denseComputeQR!T(m, beta);
-
-		// solve it
-		auto rhs = b.dup();
-		denseSolveQR!T(m, beta, rhs);
-
-		return Matrix!T(rhs.assumeUnique);
-	}
-
-	static if(is(T == float) || is(T == double) || is(T == Complex!float) || is(T == Complex!double))
-	{
-
-	/** compute (complex) eigenvalues of this */
-	Array!(ComplexType!T) eigenvalues()
-	{
-		auto n = cast(int)this.width;
-		if(this.height != n)
-			throw new Exception("invalid matrix dimensions");
-
-		auto a = this.dup;
-		auto w = Array!(ComplexType!T)(n);
-		int r;
-
-		     static if(is(T == float))       r = my_LAPACKE_sgeev(LAPACK_COL_MAJOR, 'N', 'N', n, a.ptr, n, w.ptr, null, n, null, n);
-		else static if(is(T == double))	     r = my_LAPACKE_dgeev(LAPACK_COL_MAJOR, 'N', 'N', n, a.ptr, n, w.ptr, null, n, null, n);
-		else static if(is(T == Complex!float))  r = LAPACKE_cgeev(LAPACK_COL_MAJOR, 'N', 'N', n, a.ptr, n, w.ptr, null, n, null, n);
-		else static if(is(T == Complex!double)) r = LAPACKE_zgeev(LAPACK_COL_MAJOR, 'N', 'N', n, a.ptr, n, w.ptr, null, n, null, n);
-		else throw new Exception("unsupported matrix type");
-
-		if(r != 0)
-			throw new Exception("lapack error");
-
-		return w;
-	}
-
-	/** compute (real) eigenvalues of this assuming matrix is hermitian */
-	Array!(RealType!T) hermitianEigenvalues()
-	{
-		auto n = cast(int)this.width;
-		if(this.height != n)
-			throw new Exception("invalid matrix dimensions");
-
-		auto a = this.dup;
-		auto w = Array!(RealType!T)(n);
-		int r;
-
-		     static if(is(T == float))          r = LAPACKE_ssyev(LAPACK_COL_MAJOR, 'N', 'U', n, a.ptr, n, w.ptr);
-		else static if(is(T == double))         r = LAPACKE_dsyev(LAPACK_COL_MAJOR, 'N', 'U', n, a.ptr, n, w.ptr);
-		else static if(is(T == Complex!float))  r = LAPACKE_cheev(LAPACK_COL_MAJOR, 'N', 'U', n, a.ptr, n, w.ptr);
-		else static if(is(T == Complex!double)) r = LAPACKE_zheev(LAPACK_COL_MAJOR, 'N', 'U', n, a.ptr, n, w.ptr);
-		else throw new Exception("unsupported matrix type");
-
-		if(r != 0)
-			throw new Exception("lapack error");
-
-		return w;
-	}
-
+		return new QRDecomposition!T(this);
 	}
 
 	static auto opCall(Slice!(immutable(T), 2) data)
@@ -302,6 +225,11 @@ class Matrix(T)
 		return new BandMatrix!T(kd, kd, data.assumeUnique);
 	}
 
+	static BandMatrix!T buildIdentity(size_t n)
+	{
+		return  buildBand!"i==j?1:0"(n, 0, 0);
+	}
+
 	Slice2!T dup() const @property
 	{
 		auto r = Slice2!T(height, width);
@@ -318,6 +246,9 @@ class Matrix(T)
 			x = this[p[i],j];
 		return r;
 	}
+
+	static T zero = 0;
+	static T one = 1;
 }
 
 /**
@@ -347,6 +278,14 @@ final class DenseMatrix(T) : Matrix!T
 	override ref const(T) opIndex(size_t i, size_t j) const
 	{
 		return data[i,j];
+	}
+
+	DenseMatrix transpose() const
+	{
+		auto r = new DenseMatrix(data);
+		swap(r.data.size[0], r.data.size[1]);
+		swap(r.data.pitch[0], r.data.pitch[1]);
+		return r;
 	}
 }
 
@@ -380,62 +319,143 @@ final class BandMatrix(T) : Matrix!T
 	override ref const(T) opIndex(size_t i, size_t j) const
 	{
 		if(i+ku < j || i > j+kl)
-			return T(0);
+			return zero;
 
 		return data[i-j+ku,j];
 	}
+}
 
-	/** solve the linear equations this * x = b */
-	override Matrix!T solve(Matrix!T b)
+/**
+ * lower/upper triangular matrix with/without implicit 1's on the diagonal
+ */
+final class TriangularMatrix(T, bool lower, bool implicitOne) : Matrix!T
+{
+	private Slice2!(const(T)) data;
+
+	this(Slice2!(const(T)) data)
 	{
-		auto n = cast(int)this.width;
-		auto nrhs = cast(int)b.width;
-		if(this.height != n || b.height != n)
-			throw new Exception("invalid matrix dimensions");
+		this.data = data;
+	}
 
-		auto a = this.data.data.dup;
-		auto rhs = b.dup;
-		auto p = new int[n];
-		int r;
+	override size_t height() const @property
+	{
+		return data.size[0];
+	}
 
-		     static if(is(T == float))          r = LAPACKE_sgbsv(LAPACK_COL_MAJOR, n, kl, ku, nrhs, a.ptr, 1+kl+ku, p.ptr, rhs.ptr, n);
-		else static if(is(T == double))         r = LAPACKE_dgbsv(LAPACK_COL_MAJOR, n, kl, ku, nrhs, a.ptr, 1+kl+ku, p.ptr, rhs.ptr, n);
-		else static if(is(T == Complex!float))  r = LAPACKE_cgbsv(LAPACK_COL_MAJOR, n, kl, ku, nrhs, a.ptr, 1+kl+ku, p.ptr, rhs.ptr, n);
-		else static if(is(T == Complex!double)) r = LAPACKE_zgbsv(LAPACK_COL_MAJOR, n, kl, ku, nrhs, a.ptr, 1+kl+ku, p.ptr, rhs.ptr, n);
-		else throw new Exception("unsupported matrix type");
+	override size_t width() const @property
+	{
+		return data.size[1];
+	}
 
-		if(r != 0)
-			throw new Exception("lapack error");
+	override ref const(T) opIndex(size_t i, size_t j) const
+	{
+		if(implicitOne && i == j)
+			return one;
 
+		if((lower && i < j) || (!lower && i > j))
+			return zero;
+
+		return data[i,j];
+	}
+}
+
+final class PermutationMatrix(T) : Matrix!T
+{
+	immutable int[] p;
+
+	this(immutable(int)[] p)
+	{
+		this.p = p;
+	}
+
+	override size_t height() const @property
+	{
+		return p.length;
+	}
+
+	override size_t width() const @property
+	{
+		return p.length;
+	}
+
+	override ref const(T) opIndex(size_t i, size_t j) const
+	{
+		if(p[i] == j)
+			return one;
+		else
+			return zero;
+	}
+}
+
+final class LUDecomposition(T)
+{
+	Slice2!T m;
+	int[] p;
+
+	this(Matrix!T _m)
+	{
+
+		p = new int[_m.height];
+		m = _m.dup;
+		denseComputeLU!T(m, p);
+	}
+
+	Matrix!T solve(Matrix!T b)
+	{
+		auto rhs = b.dup(p);
+		denseSolveLU!T(m, rhs);
 		return Matrix!T(rhs.assumeUnique);
 	}
 
-	/** compute (complex) eigenvalues of this */
-	override Array!(ComplexType!T) eigenvalues()
+	auto L()
 	{
-		throw new Exception("non-symmetric eigenvalues on band matrices not supported");
+		return new TriangularMatrix!(T, true, true)(m);
 	}
 
-	/** compute (real) eigenvalues of this, assuming matrix is hermitian */
-	override Array!(RealType!T) hermitianEigenvalues()
+	auto U()
 	{
-		auto n = cast(int)this.width;
-		if(this.height != n)
-			throw new Exception("invalid matrix dimensions");
+		return new TriangularMatrix!(T, false, false)(m);
+	}
 
-		auto a = this.data.data.dup;
-		auto w = Array!(RealType!T)(n);
-		int r;
+	auto P()
+	{
+		return new PermutationMatrix!T(cast(immutable(int)[])p);
+	}
+}
 
-	         static if(is(T == float))          r = LAPACKE_ssbev(LAPACK_COL_MAJOR, 'N', 'U', n, ku, a.ptr, 1+kl+ku, w.ptr, null, n);
-		else static if(is(T == double))         r = LAPACKE_dsbev(LAPACK_COL_MAJOR, 'N', 'U', n, ku, a.ptr, 1+kl+ku, w.ptr, null, n);
-		else static if(is(T == Complex!float))  r = LAPACKE_chbev(LAPACK_COL_MAJOR, 'N', 'U', n, ku, a.ptr, 1+kl+ku, w.ptr, null, n);
-		else static if(is(T == Complex!double)) r = LAPACKE_zhbev(LAPACK_COL_MAJOR, 'N', 'U', n, ku, a.ptr, 1+kl+ku, w.ptr, null, n);
-		else throw new Exception("unsupported matrix type");
+final class QRDecomposition(T)
+{
+	Slice2!T m;
+	T[] beta;
 
-		if(r != 0)
-			throw new Exception("lapack error");
+	this(Matrix!T _m)
+	{
+		beta = new T[_m.height];
+		m = _m.dup;
+		denseComputeQR!T(m, beta);
+	}
 
-		return w;
+	Matrix!T solve(Matrix!T b)
+	{
+		auto rhs = b.dup();
+		denseSolveQR!T(m, beta, rhs);
+		return Matrix!T(rhs.assumeUnique);
+	}
+
+	auto Q()
+	{
+		auto q = Slice2!T(beta.length, beta.length);
+		foreach(i, j, ref x; q)
+			x = i==j ? 1 : 0;
+
+		for(int k = cast(int)beta.length-1; k >= 0; --k)
+			householderReflection!T(q[k..$,0..$], m[k+1..$,k], beta[k]);
+
+		return Matrix!T(q.assumeUnique);
+	}
+
+	auto R()
+	{
+		return new TriangularMatrix!(T, false, false)(m);
 	}
 }
