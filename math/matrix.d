@@ -139,15 +139,20 @@ class Matrix(T)
 	}
 
 	/** compute LU decomposition */
-	LUDecomposition!T LU()
+	DenseLU!T lu()
 	{
-		return new LUDecomposition!T(this);
+		return new DenseLU!T(this);
 	}
 
 	/** compute QR decomposition */
-	QRDecomposition!T QR()
+	DenseQR!T qr()
 	{
-		return new QRDecomposition!T(this);
+		return new DenseQR!T(this);
+	}
+
+	DenseHessenberg!T hessenberg()
+	{
+		return new DenseHessenberg!T(this);
 	}
 
 	static auto opCall(Slice!(immutable(T), 2) data)
@@ -328,7 +333,7 @@ final class BandMatrix(T) : Matrix!T
 /**
  * lower/upper triangular matrix with/without implicit 1's on the diagonal
  */
-final class TriangularMatrix(T, bool lower, bool implicitOne) : Matrix!T
+final class TriangularMatrix(T, bool lower, bool implicitOne, int offDiag = 0) : Matrix!T
 {
 	private Slice2!(const(T)) data;
 
@@ -352,7 +357,7 @@ final class TriangularMatrix(T, bool lower, bool implicitOne) : Matrix!T
 		if(implicitOne && i == j)
 			return one;
 
-		if((lower && i < j) || (!lower && i > j))
+		if((lower && i+offDiag < j) || (!lower && i > j+offDiag))
 			return zero;
 
 		return data[i,j];
@@ -387,7 +392,7 @@ final class PermutationMatrix(T) : Matrix!T
 	}
 }
 
-final class LUDecomposition(T)
+final class DenseLU(T)
 {
 	Slice2!T m;
 	int[] p;
@@ -423,7 +428,7 @@ final class LUDecomposition(T)
 	}
 }
 
-final class QRDecomposition(T)
+final class DenseQR(T)
 {
 	Slice2!T m;
 	T[] beta;
@@ -457,5 +462,35 @@ final class QRDecomposition(T)
 	auto R()
 	{
 		return new TriangularMatrix!(T, false, false)(m);
+	}
+}
+
+final class DenseHessenberg(T)
+{
+	Slice2!T m;
+	T[] beta;
+
+	this(Matrix!T _m)
+	{
+		beta = new T[_m.height];
+		m = _m.dup;
+		denseComputeHessenberg!T(m, beta);
+	}
+
+	auto Q()
+	{
+		auto q = Slice2!T(beta.length, beta.length);
+		foreach(i, j, ref x; q)
+			x = i==j ? 1 : 0;
+
+		for(int k = cast(int)beta.length-2; k >= 0; --k)
+			householderReflection!T(q[k+1..$,0..$], m[k+2..$,k], beta[k]);
+
+		return Matrix!T(q.assumeUnique);
+	}
+
+	auto H()
+	{
+		return new TriangularMatrix!(T, false, false, 1)(m);
 	}
 }

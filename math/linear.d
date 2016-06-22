@@ -138,6 +138,22 @@ void householderReflection(T)(Slice2!T a, Slice!(const(T)) v, T beta)
 	}
 }
 
+/** a = a - beta * <a,w> w, with w = (1, v) */
+void householderReflectionRight(T)(Slice2!T a, Slice!(const(T)) v, T beta)
+{
+	int n = cast(int)v.size[0]+1;
+	if(a.size[1] != n)
+		throw new Exception("vector dimension mismatch");
+
+	for(int k = 0; k < a.size[0]; ++k)
+	{
+		T s = beta * (a[k,0] + scalarProduct(a[k,1..$], v));
+		a[k, 0] -= s;
+		for(int i = 1; i < n; ++i)
+			a[k, i] -= s * v[i-1];
+	}
+}
+
 /** compute QR decomposition of m inplace */
 void denseComputeQR(T)(Slice2!T m, T[] beta)
 {
@@ -173,4 +189,31 @@ void denseSolveQR(T)(Slice2!(const(T)) m, T[] beta, Slice2!T b)
 		householderReflection!T(b[k..$,0..$], m[k+1..$,k], beta[k]);
 
 	denseSolveU!T(m, b);
+}
+
+/** compute Hessenberg decomposition of m inplace */
+void denseComputeHessenberg(T)(Slice2!T m, T[] beta)
+{
+	int n = cast(int)beta.length;
+	if(m.size[0] != n || m.size[1] != n)
+		throw new Exception("matrix dimension mismatch");
+
+	for(int k = 0; k < n-1; ++k)
+	{
+		T c = sqrt(scalarProduct!T(m[k+1..$, k], m[k+1..$, k]));
+		if(m[k+1,k] > 0) // TODO: inverse phase for complex numbers
+			c = -c;
+
+		// compute reflection vector and beta factor
+		for(int i = k+2; i < n; ++i)
+			m[i,k] /= m[k+1,k] - c;
+		m[k+1,k] = c;
+		beta[k] = 2/(1 + scalarProduct(m[k+2..$, k], m[k+2..$, k]));
+
+		// update remaining columns
+		householderReflection!T(m[k+1..$, k+1..$], m[k+2..$, k], beta[k]);
+
+		// update all(!) rows (TODO: do a little less work on hermitian matrices)
+		householderReflectionRight!T(m[0..$, k+1..$], m[k+2..$, k], beta[k]);
+	}
 }
