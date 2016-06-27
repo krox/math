@@ -66,7 +66,7 @@ void denseComputeLU(T)(Slice2!T m, int[] p)
 }
 
 /** solve linear equation of lower triangular matrix with implicit 1's on diagonal */
-void denseSolveL(T)(const Slice2!T m, Slice2!T b)
+void denseSolveL(T)(Slice2!(const(T)) m, Slice2!T b)
 {
 	int n = cast(int)m.size[0];
 	if(m.size[1] != n || b.size[0] != n)
@@ -97,7 +97,7 @@ void denseSolveU(T)(Slice2!(const(T)) m, Slice2!T b)
 }
 
 /** solve linear equation after LU decomposition was computed */
-void denseSolveLU(T)(const Slice2!T m, Slice2!T b)
+void denseSolveLU(T)(Slice2!(const(T)) m, Slice2!T b)
 {
 	int n = cast(int)m.size[0];
 	if(m.size[1] != n || b.size[0] != n)
@@ -201,7 +201,7 @@ void denseComputeQR(T)(Slice2!T m, RealTypeOf!T[] beta)
 }
 
 /** solve linear equation after QR decomposition was computed */
-void denseSolveQR(T)(Slice2!(const(T)) m, RealTypeOf!T[] beta, Slice2!T b)
+void denseSolveQR(T)(Slice2!(const(T)) m, const(RealTypeOf!T)[] beta, Slice2!T b)
 {
 	int n = cast(int)beta.length;
 	if(m.size[0] != n || m.size[1] != n || b.size[0] != n)
