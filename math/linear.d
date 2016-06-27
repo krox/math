@@ -7,8 +7,10 @@ module math.linear;
 import jive.array;
 private import std.math;
 private import std.traits;
+private import std.complex;
 private import std.algorithm : move, swap;
 private import jive.bitarray;
+private import math.complex;
 
 
 //////////////////////////////////////////////////////////////////////
@@ -110,20 +112,42 @@ void denseSolveLU(T)(const Slice2!T m, Slice2!T b)
 /// QR decomposition (real numbers only implemented)
 //////////////////////////////////////////////////////////////////////
 
+/** same as scalarProduct(v, v) */
+RealTypeOf!T norm2(T)(Slice!(const(T)) a)
+{
+	RealTypeOf!T r = 0;
+	for(int i = 0; i < a.length; ++i)
+		r += sqAbs(a[i]);
+	return r;
+}
+
 /** scalar product of two vectors */
-T scalarProduct(T)(Slice!(const(T)) a, Slice!(const(T)) b)
+T scalarProduct(T, bool conjugate = true)(Slice!(const(T)) a, Slice!(const(T)) b)
 {
 	if(a.length != b.length)
 		throw new Exception("vector dimension mismatch");
 
 	T r = 0;
 	for(int i = 0; i < a.length; ++i)
-		r += a[i]*b[i]; // TODO: complex conjugate
+		static if(isComplex!T && conjugate)
+			r += conj(a[i])*b[i];
+		else
+			r += a[i]*b[i];
 	return r;
 }
 
-/** a = a - beta * <w,a> w, with w = (1, v) */
-void householderReflection(T)(Slice2!T a, Slice!(const(T)) v, T beta)
+/** compute householder reflection inplace, returns beta factor */
+RealTypeOf!T makeHouseholderReflection(T)(Slice!T v)
+{
+	T c = -phase(v[0])*sqrt(norm2!T(v));
+	for(int i = 1; i < v.length; ++i)
+		v[i] /= v[0] - c;
+	v[0] = c;
+	return 2/(1 + norm2(v[1..$]));
+}
+
+/** a = (1 - beta*|v><v|) * a */
+void householderReflection(T)(Slice2!T a, Slice!(const(T)) v, RealTypeOf!T beta)
 {
 	int n = cast(int)v.size[0]+1;
 	if(a.size[0] != n)
@@ -138,8 +162,8 @@ void householderReflection(T)(Slice2!T a, Slice!(const(T)) v, T beta)
 	}
 }
 
-/** a = a - beta * <a,w> w, with w = (1, v) */
-void householderReflectionRight(T)(Slice2!T a, Slice!(const(T)) v, T beta)
+/** a = a * (1 - beta*|v><v|) */
+void householderReflectionRight(T)(Slice2!T a, Slice!(const(T)) v, RealTypeOf!T beta)
 {
 	int n = cast(int)v.size[0]+1;
 	if(a.size[1] != n)
@@ -147,15 +171,20 @@ void householderReflectionRight(T)(Slice2!T a, Slice!(const(T)) v, T beta)
 
 	for(int k = 0; k < a.size[0]; ++k)
 	{
-		T s = beta * (a[k,0] + scalarProduct(a[k,1..$], v));
+		T s = beta * (a[k,0] + scalarProduct!(T,false)(v, a[k,1..$]));
 		a[k, 0] -= s;
 		for(int i = 1; i < n; ++i)
-			a[k, i] -= s * v[i-1];
+		{
+			static if(isComplex!T)
+				a[k, i] -= s * conj(v[i-1]);
+			else
+				a[k, i] -= s * v[i-1];
+		}
 	}
 }
 
 /** compute QR decomposition of m inplace */
-void denseComputeQR(T)(Slice2!T m, T[] beta)
+void denseComputeQR(T)(Slice2!T m, RealTypeOf!T[] beta)
 {
 	int n = cast(int)beta.length;
 	if(m.size[0] != n || m.size[1] != n)
@@ -163,15 +192,8 @@ void denseComputeQR(T)(Slice2!T m, T[] beta)
 
 	for(int k = 0; k < n; ++k)
 	{
-		T c = sqrt(scalarProduct!T(m[k..$, k], m[k..$, k]));
-		if(m[k,k] > 0) // TODO: inverse phase for complex numbers
-			c = -c;
-
-		// compute reflection vector and beta factor
-		for(int i = k+1; i < n; ++i)
-			m[i,k] /= m[k,k] - c;
-		m[k,k] = c;
-		beta[k] = 2/(1 + scalarProduct(m[k+1..$, k], m[k+1..$, k]));
+		// make householder reflection for current column
+		beta[k] = makeHouseholderReflection(m[k..$, k]);
 
 		// update remaining columns
 		householderReflection!T(m[k..$, k+1..$], m[k+1..$, k], beta[k]);
@@ -179,7 +201,7 @@ void denseComputeQR(T)(Slice2!T m, T[] beta)
 }
 
 /** solve linear equation after QR decomposition was computed */
-void denseSolveQR(T)(Slice2!(const(T)) m, T[] beta, Slice2!T b)
+void denseSolveQR(T)(Slice2!(const(T)) m, RealTypeOf!T[] beta, Slice2!T b)
 {
 	int n = cast(int)beta.length;
 	if(m.size[0] != n || m.size[1] != n || b.size[0] != n)
@@ -192,7 +214,7 @@ void denseSolveQR(T)(Slice2!(const(T)) m, T[] beta, Slice2!T b)
 }
 
 /** compute Hessenberg decomposition of m inplace */
-void denseComputeHessenberg(T)(Slice2!T m, T[] beta)
+void denseComputeHessenberg(T)(Slice2!T m, RealTypeOf!T[] beta)
 {
 	int n = cast(int)beta.length;
 	if(m.size[0] != n || m.size[1] != n)
@@ -200,15 +222,8 @@ void denseComputeHessenberg(T)(Slice2!T m, T[] beta)
 
 	for(int k = 0; k < n-1; ++k)
 	{
-		T c = sqrt(scalarProduct!T(m[k+1..$, k], m[k+1..$, k]));
-		if(m[k+1,k] > 0) // TODO: inverse phase for complex numbers
-			c = -c;
-
-		// compute reflection vector and beta factor
-		for(int i = k+2; i < n; ++i)
-			m[i,k] /= m[k+1,k] - c;
-		m[k+1,k] = c;
-		beta[k] = 2/(1 + scalarProduct(m[k+2..$, k], m[k+2..$, k]));
+		// make householder reflection for current column
+		beta[k] = makeHouseholderReflection(m[k+1..$, k]);
 
 		// update remaining columns
 		householderReflection!T(m[k+1..$, k+1..$], m[k+2..$, k], beta[k]);

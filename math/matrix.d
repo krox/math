@@ -11,6 +11,7 @@ private import std.random : uniform;
 
 private import jive.array;
 private import math.linear;
+private import math.complex;
 
 class Matrix(T)
 {
@@ -71,13 +72,19 @@ class Matrix(T)
 	}
 
 	/** return squared L2 norm */
-	final T norm2() const @property
+	final RealTypeOf!T sqNorm() const @property
 	{
-		T sum = 0;
+		RealTypeOf!T sum = 0;
 		for(size_t j = 0; j < width; ++j)
 			for(size_t i = 0; i < height; ++i)
-				sum = sum + this[i,j]*this[i,j];
+				sum += sqAbs(this[i,j]);
 		return sum;
+	}
+
+	/** return L2 norm */
+	final RealTypeOf!T norm() const @property
+	{
+		return std.math.sqrt(sqNorm);
 	}
 
 	final Matrix opBinary(string op)(Matrix b) const
@@ -169,6 +176,8 @@ class Matrix(T)
 	{
 		static if(isFloatingPoint!T)
 			return build!((i,j)=> cast(T)uniform(-1.0, 1.0))(height, width);
+		else static if(isComplex!T)
+			return build!((i,j)=> T(uniform(-1.0,1.0), uniform(-1.0,1.0)))(height, width);
 		else
 			return build!((i,j)=> T.random())(height, width);
 	}
@@ -291,6 +300,17 @@ final class DenseMatrix(T) : Matrix!T
 		swap(r.data.size[0], r.data.size[1]);
 		swap(r.data.pitch[0], r.data.pitch[1]);
 		return r;
+	}
+
+	DenseMatrix adjoint() const
+	{
+		auto r = this.dup;
+		swap(r.size[0], r.size[1]);
+		swap(r.pitch[0], r.pitch[1]);
+		static if(isComplex!T)
+			foreach(i, j, ref x; r)
+				x = conj(x);
+		return new DenseMatrix(r.assumeUnique);
 	}
 }
 
@@ -431,11 +451,11 @@ final class DenseLU(T)
 final class DenseQR(T)
 {
 	Slice2!T m;
-	T[] beta;
+	RealTypeOf!T[] beta;
 
 	this(Matrix!T _m)
 	{
-		beta = new T[_m.height];
+		beta = new RealTypeOf!T[_m.height];
 		m = _m.dup;
 		denseComputeQR!T(m, beta);
 	}
@@ -468,11 +488,11 @@ final class DenseQR(T)
 final class DenseHessenberg(T)
 {
 	Slice2!T m;
-	T[] beta;
+	RealTypeOf!T[] beta;
 
 	this(Matrix!T _m)
 	{
-		beta = new T[_m.height];
+		beta = new RealTypeOf!T[_m.height];
 		m = _m.dup;
 		denseComputeHessenberg!T(m, beta);
 	}
