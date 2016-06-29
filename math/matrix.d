@@ -213,6 +213,11 @@ struct Matrix(T)
 		return DenseHessenberg!T(this);
 	}
 
+	DenseSchur!T schur(RealTypeOf!T eps, int maxSteps = int.max)
+	{
+		return DenseSchur!T(this, eps, maxSteps);
+	}
+
 	static Matrix!T random(size_t height, size_t width)
 	{
 		static if(isFloatingPoint!T)
@@ -221,6 +226,16 @@ struct Matrix(T)
 			return build!((i,j)=> T(uniform(-1.0,1.0), uniform(-1.0,1.0)))(height, width);
 		else
 			return build!((i,j)=> T.random())(height, width);
+	}
+
+	static Matrix!T randomHermitian(size_t n)
+	{
+		static if(isFloatingPoint!T)
+			return buildHermitian!((i,j)=> cast(T)uniform(-1.0, 1.0))(n);
+		else static if(isComplex!T)
+			return buildHermitian!((i,j)=> T(uniform(-1.0,1.0), uniform(-1.0,1.0)))(n);
+		else
+			return buildHermitian!((i,j)=> T.random())(n);
 	}
 
 	static Matrix!T random(Ring)(size_t height, size_t width, Ring ring)
@@ -241,16 +256,27 @@ struct Matrix(T)
 		return Matrix!T(data.assumeUnique);
 	}
 
-	/** only explicitly genrates upper/right half */
-	static Matrix!T buildSymmetric(alias fun)(size_t n)
+	/** only explicitly generates upper/right half */
+	static Matrix!T buildHermitian(alias fun)(size_t n)
 	{
 		auto data = Slice2!T(n, n);
 		for(size_t j = 0; j < n; ++j)
 			for(size_t i = 0; i <= j; ++i)
 			{
 				data[i,j] = binaryFun!(fun,"i","j")(i, j);
-				if(i != j)
-					data[j,i] = data[i,j];
+
+				static if(isComplex!T)
+				{
+					if(i == j)
+						data[i,j] = 0.5*(data[i,j] + conj(data[i,j]));
+					else
+						data[j,i] = conj(data[i,j]);
+				}
+				else
+				{
+					if(i != j)
+						data[j,i] = data[i,j];
+				}
 			}
 		return Matrix!T(data.assumeUnique);
 	}
@@ -425,7 +451,7 @@ struct DenseQR(T)
 			x = i==j ? 1 : 0;
 
 		for(int k = cast(int)beta.length-1; k >= 0; --k)
-			householderReflection!T(q[k..$,0..$], m[k+1..$,k], beta[k]);
+			applyHouseholder!T(q[k..$,0..$], m[k+1..$,k], beta[k]);
 
 		return Matrix!T(q.assumeUnique);
 	}
@@ -459,7 +485,7 @@ struct DenseHessenberg(T)
 			x = i==j ? 1 : 0;
 
 		for(int k = cast(int)beta.length-2; k >= 0; --k)
-			householderReflection!T(q[k+1..$,0..$], m[k+2..$,k], beta[k]);
+			applyHouseholder!T(q[k+1..$,0..$], m[k+2..$,k], beta[k]);
 
 		return Matrix!T(q.assumeUnique);
 	}
@@ -467,5 +493,22 @@ struct DenseHessenberg(T)
 	auto h()
 	{
 		return TriangularMatrix!(T, false, false, 1)(m);
+	}
+}
+
+struct DenseSchur(T)
+{
+	Matrix!T u;
+	Matrix!T q;
+
+	this(Matrix!T _m, RealTypeOf!T eps, int maxSteps = int.max)
+	{
+		auto m = _m.dup;
+		auto q = Slice2!T(m.size[0], m.size[1]);
+
+		denseComputeSchur!T(m, q, eps, maxSteps);
+
+		this.u = Matrix!T(m.assumeUnique);
+		this.q = Matrix!T(q.assumeUnique);
 	}
 }

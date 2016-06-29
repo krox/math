@@ -109,7 +109,7 @@ void denseSolveLU(T)(Slice2!(const(T)) m, Slice2!T b)
 
 
 //////////////////////////////////////////////////////////////////////
-/// QR decomposition (real numbers only implemented)
+/// QR decomposition
 //////////////////////////////////////////////////////////////////////
 
 /** same as scalarProduct(v, v) */
@@ -137,7 +137,7 @@ T scalarProduct(T, bool conjugate = true)(Slice!(const(T)) a, Slice!(const(T)) b
 }
 
 /** compute householder reflection inplace, returns beta factor */
-RealTypeOf!T makeHouseholderReflection(T)(Slice!T v)
+RealTypeOf!T makeHouseholder(T)(Slice!T v)
 {
 	T c = -phase(v[0])*sqrt(norm2!T(v));
 	for(int i = 1; i < v.length; ++i)
@@ -147,7 +147,7 @@ RealTypeOf!T makeHouseholderReflection(T)(Slice!T v)
 }
 
 /** a = (1 - beta*|v><v|) * a */
-void householderReflection(T)(Slice2!T a, Slice!(const(T)) v, RealTypeOf!T beta)
+void applyHouseholder(T)(Slice2!T a, Slice!(const(T)) v, RealTypeOf!T beta)
 {
 	int n = cast(int)v.size[0]+1;
 	if(a.size[0] != n)
@@ -163,7 +163,7 @@ void householderReflection(T)(Slice2!T a, Slice!(const(T)) v, RealTypeOf!T beta)
 }
 
 /** a = a * (1 - beta*|v><v|) */
-void householderReflectionRight(T)(Slice2!T a, Slice!(const(T)) v, RealTypeOf!T beta)
+void applyHouseholderRight(T)(Slice2!T a, Slice!(const(T)) v, RealTypeOf!T beta)
 {
 	int n = cast(int)v.size[0]+1;
 	if(a.size[1] != n)
@@ -183,6 +183,65 @@ void householderReflectionRight(T)(Slice2!T a, Slice!(const(T)) v, RealTypeOf!T 
 	}
 }
 
+/** compute givens rotation */
+void makeGivens(T)(ref T a, ref T b, ref RealTypeOf!T c, ref T s)
+{
+	if(b == 0)
+	{
+		c = 1;
+		s = 0;
+		//a = a;
+		//b = 0;
+	}
+	else if(a == 0)
+	{
+		c = 0;
+		static if(isComplex!T)
+			s = phase(conj(b));
+		else
+			s = phase(b);
+		a = abs(b);
+		b = 0;
+	}
+	else
+	{
+		auto l = sqrt(sqAbs(a)+sqAbs(b));
+		c = abs(a)/l;
+		static if(isComplex!T)
+			s = phase(a)*conj(b)/l;
+		else
+			s = phase(a)*b/l;
+		a = phase(a)*l;
+		b = 0;
+	}
+}
+
+void applyGivens(T)(Slice2!T m, int i, int j, RealTypeOf!T c, ref T s)
+{
+	for(int k = 0; k < m.size[1]; ++k)
+	{
+		auto tmp = c*m[i,k] + s*m[j,k];
+		static if(isComplex!T)
+			m[j,k] = -conj(s)*m[i,k] + c*m[j,k];
+		else
+			m[j,k] = -s*m[i,k] + c*m[j,k];
+		m[i,k] = tmp;
+	}
+}
+
+void applyGivensRight(T)(Slice2!T m, int i, int j, RealTypeOf!T c, ref T s)
+{
+	for(int k = 0; k < m.size[1]; ++k)
+	{
+		static if(isComplex!T)
+			auto tmp = c*m[k,i] + conj(s)*m[k,j];
+		else
+			auto tmp = c*m[k,i] + s*m[k,j];
+		m[k,j] = -s*m[k,i] + c*m[k,j];
+		m[k,i] = tmp;
+	}
+}
+
 /** compute QR decomposition of m inplace */
 void denseComputeQR(T)(Slice2!T m, RealTypeOf!T[] beta)
 {
@@ -193,10 +252,10 @@ void denseComputeQR(T)(Slice2!T m, RealTypeOf!T[] beta)
 	for(int k = 0; k < n; ++k)
 	{
 		// make householder reflection for current column
-		beta[k] = makeHouseholderReflection(m[k..$, k]);
+		beta[k] = makeHouseholder!T(m[k..$, k]);
 
 		// update remaining columns
-		householderReflection!T(m[k..$, k+1..$], m[k+1..$, k], beta[k]);
+		applyHouseholder!T(m[k..$, k+1..$], m[k+1..$, k], beta[k]);
 	}
 }
 
@@ -208,11 +267,14 @@ void denseSolveQR(T)(Slice2!(const(T)) m, const(RealTypeOf!T)[] beta, Slice2!T b
 		throw new Exception("matrix dimension mismatch");
 
 	for(int k = 0; k < n; ++k)
-		householderReflection!T(b[k..$,0..$], m[k+1..$,k], beta[k]);
+		applyHouseholder!T(b[k..$,0..$], m[k+1..$,k], beta[k]);
 
 	denseSolveU!T(m, b);
 }
-
+/+float conj(float x)
+{
+	return x;
+}+/
 /** compute Hessenberg decomposition of m inplace */
 void denseComputeHessenberg(T)(Slice2!T m, RealTypeOf!T[] beta)
 {
@@ -223,12 +285,90 @@ void denseComputeHessenberg(T)(Slice2!T m, RealTypeOf!T[] beta)
 	for(int k = 0; k < n-1; ++k)
 	{
 		// make householder reflection for current column
-		beta[k] = makeHouseholderReflection(m[k+1..$, k]);
+		beta[k] = makeHouseholder(m[k+1..$, k]);
 
 		// update remaining columns
-		householderReflection!T(m[k+1..$, k+1..$], m[k+2..$, k], beta[k]);
+		applyHouseholder!T(m[k+1..$, k+1..$], m[k+2..$, k], beta[k]);
 
 		// update all(!) rows (TODO: do a little less work on hermitian matrices)
-		householderReflectionRight!T(m[0..$, k+1..$], m[k+2..$, k], beta[k]);
+		applyHouseholderRight!T(m[0..$, k+1..$], m[k+2..$, k], beta[k]);
 	}
+}
+
+
+//////////////////////////////////////////////////////////////////////
+/// Eigenvalue decomposition
+//////////////////////////////////////////////////////////////////////
+
+/**
+ * Schur decomposition: A = Q * U * Q^-1
+ *   - m is replaced by the diagonal matrix U (diagonal in case of A being hermitian)
+ *   - does not work for real matrices with complex eigenvalues
+ *     (TODO: either detect nicely, or actually implement a block-schur-decomposition)
+ *   - TODO: numerics parameters (eps, maxSteps) might be removed / changed in the future
+ *     (to do something more clever than relying on user input)
+ */
+void denseComputeSchur(T)(Slice2!T m, Slice2!T q, RealTypeOf!T eps, int maxSteps = int.max)
+{
+	int n = cast(int)m.size[0];
+	if(m.size[1] != n || q.size[0] != n || q.size[1] != n)
+		throw new Exception("matrix dimension mismatch");
+
+
+
+	// initialize q to identity matrix
+	for(int j = 0; j < n; ++j)
+		for(int i = 0; i < n; ++i)
+			q[i,j] = i==j?1:0;
+
+	// temporary vectors
+	auto alpha = new RealTypeOf!T[n];
+	auto beta = new T[n];
+
+	// reduce m to Hessenberg matrix
+	denseComputeHessenberg!T(m, alpha);
+	for(int i = 0; i < n-1; ++i)
+		applyHouseholderRight!T(q[0..$,i+1..$], m[i+2..$,i], alpha[i]);
+	for(int j = 0; j < n; ++j)
+		for(int i = j+2; i < n; ++i)
+			m[i,j] = 0;
+
+	// QR algorithm
+	T shift = 0;
+	int steps;
+	for(steps = 0; steps < maxSteps && n > 1; ++steps)
+	{
+		// shift to speed up convergence
+		auto o = polyRoot!T(m[n-2,n-2]*m[n-1,n-1] - m[n-2,n-1]*m[n-1,n-2], -m[n-2,n-2]-m[n-1,n-1], T(1))[0];
+		shift += o;
+		for(int i = 0; i < n; ++i)
+			m[i,i] -= o;
+
+		// QR decomposition (using Givens rotation)
+		for(int k = 0; k < n-1; ++k)
+		{
+			makeGivens!T(m[k,k], m[k+1,k], alpha[k], beta[k]);
+			applyGivens!T(m[0..$, k+1..$], k, k+1, alpha[k], beta[k]);
+		}
+
+		// apply Q on the right again
+		for(int k = 0; k < n-1; ++k)
+		{
+			applyGivensRight!T(m, k, k+1, alpha[k], beta[k]);
+			applyGivensRight!T(q, k, k+1, alpha[k], beta[k]);
+		}
+
+		// if the lowest entry converged, "remove" it
+		// (remove last row, but keep last column!)
+		if(abs(m[n-1, n-2]) < eps)
+		{
+			m[n-1, n-2] = 0;
+			m[n-1, n-1] += shift;
+			n--;
+		}
+	}
+
+	// fix remaining diagonal entries (if everything converged, thats only one entry)
+	for(int i = 0; i < n; ++i)
+		m[i,i] += shift;
 }

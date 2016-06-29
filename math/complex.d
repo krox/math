@@ -1,6 +1,9 @@
 module math.complex;
 
 import std.complex;
+import std.math;
+
+private import std.algorithm;
 
 template isComplex(T)
 {
@@ -41,4 +44,19 @@ auto phase(T)(auto ref const T x)
 			return 1;
 		else
 		 return -1;
+}
+
+/** roots of quadratic polynomial */
+T[2] polyRoot(T)(T c, T b, T a)
+{
+	b /= a;
+	c /= a;
+
+	T[2] x;
+	x[0] = (-b+sqrt(b*b-4*c))/a;
+	x[1] = (-b-sqrt(b*b-4*c))/a;
+	if(abs(x[0]) > abs(x[1]))
+		swap(x[0], x[1]);
+
+	return x;
 }
