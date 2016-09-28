@@ -1,8 +1,6 @@
 module math.numberfield;
 
-import math.integer;
-import math.rational;
-
+// NOTE: try not to include any GMP dependent module here
 
 /**
  * Numbers of the form (a + b * sqrt(d)), with a, b and d a (fixed) non-square.
@@ -104,7 +102,7 @@ struct Quadratic(T)
 	}
 
 	/** returns largest integer <= this */
-	static if(is(T == Rational))
+	/+static if(is(T == Rational))
 	{
 		Integer floor() const pure nothrow @property
 		{
@@ -119,7 +117,7 @@ struct Quadratic(T)
 
 			return (x + a.num * b.denom) / (a.denom*b.denom);
 		}
-	}
+	}+/
 }
 
 unittest
