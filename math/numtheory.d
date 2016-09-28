@@ -615,6 +615,31 @@ unittest
 	assert(factor(1000000007L*1000000009L)[] == [tuple(1000000007L,1), tuple(1000000009L,1)]);
 }
 
+Array!long divisors(long n)
+{
+    // factor the number
+    auto fs = factor(n);
+
+    // number of divisors (equal to tau(this.multiply))
+    long count = 1;
+    foreach(f; fs.factors)
+        count *= f[1] + 1;
+
+    Array!long d;
+    d.reserve(count);
+    d.pushBack(1);
+
+    foreach(f; fs.factors)
+    {
+        long oldCount = d.length;
+        for(long i = 0; i < f[1]*oldCount; ++i)
+            d.pushBack(f[0] * d[$-oldCount]);
+    }
+
+    assert(d.length == count);
+    sort(d[]);
+    return d;
+}
 
 //////////////////////////////////////////////////////////////////////
 /// combinatoric functions
