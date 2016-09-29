@@ -839,6 +839,23 @@ alias omega = MultiplicativeFunction!("1", "a+b", 0);
 /** number of (possibly not distinct) prime factors */
 alias Omega = MultiplicativeFunction!("e", "a+b", 0);
 
+/** gcd(n,n'). It is equal to 1 if and only if n is square free */
+alias gcdDerivative = MultiplicativeFunction!("e%p==0 ? p^^e : p^^(e-1)");
+
+/** arithmetic derivative */
+long derivative(long n)
+{
+	if(n == 0)
+		return 0;
+	if(n < 0)
+		return -derivative(-n);
+
+	long r = 0;
+	foreach(f; factor(n))
+		r += n / f[0] * f[1];
+	return r;
+}
+
 unittest
 {
 	import std.algorithm : equal;
@@ -853,6 +870,8 @@ unittest
 	assert(equal(map!mu(iota(1,21)), [1,-1,-1,0,-1,1,-1,0,0,1,-1,0,-1,1,1,0,-1,0,-1,0][]));
 	assert(equal(map!omega(iota(1,21)), [0,1,1,1,1,2,1,1,1,2,1,2,1,2,2,1,1,2,1,2][]));
 	assert(equal(map!Omega(iota(1,21)), [0,1,1,2,1,2,1,3,2,2,1,3,1,2,2,4,1,3,1,3][]));
+	assert(equal(map!gcdDerivative(iota(1,21)), [1,1,1,4,1,1,1,4,3,1,1,4,1,1,1,16,1,3,1,4][]));
+	assert(equal(map!derivative(iota(1,21)), [0,1,1,4,1,5,1,12,6,7,1,16,1,9,8,32,1,21,1,24][]));
 }
 
 /** Jacobi symbol (a/n) defined for any odd integer n */
