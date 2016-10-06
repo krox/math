@@ -665,8 +665,10 @@ long factorial(long n) pure nothrow
  */
 long binomial(long n, long k) pure nothrow
 {
-	assert(0 <= n);
-	assert(0 <= k && k <= n);
+	assert(n >= 0 && k >= 0);
+
+	if(k > n)
+		return 0;
 
 	// use symmetry to minimize work
 	if(n - k < k)
@@ -680,6 +682,43 @@ long binomial(long n, long k) pure nothrow
 		r /= i;
 	}
 	return r;
+}
+
+/**
+ * calculate a binomial coefficient modulo a prime using Lucas's theorem
+ */
+long binomialMod(long n, long k, long p)
+{
+	assert(isPrime(p));
+	assert(n >= 0 && k >= 0);
+	if(k > n)
+		return 0;
+	assert(n < int.max);	// need to use "mulmod" and such if you want this
+
+	long r = 1;
+	long s = 1;
+
+	while(k > 0)
+	{
+		long a = n % p;
+		long b = k % p;
+		n /= p;
+		k /= p;
+
+		if(b > a)
+			return 0;
+
+		if(a - b < b)
+			b = a - b;
+
+		for(long i = 1; i <= b; ++i)
+		{
+			r = (r * (a + 1 - i)) % p;
+			s = (s * i) % p;
+		}
+	}
+
+	return (r * invmod(s,p)) % p;
 }
 
 /**
@@ -709,6 +748,15 @@ unittest
 	assert(factorial(5) == 120);
 	assert(binomial(0,0) == 1);
 	assert(binomial(4,2) == 6);
+
+	for(int n = 0; n < 61; ++n)
+		for(int k = 0; k < 61; ++k)
+			foreach(p; [2,3,5,7,11,13,17,19])
+				assert(binomial(n,k)%p == binomialMod(n,k,p));
+
+	for(int 1 = 0; n < 61; ++n)
+		for(int k = 1; k < 61; ++k)
+			assert(binomial(n,k) == binomial(n-1,k) + binomial(n-1,k-1));
 
 	assert(powerSum(0, 5) == 1 + 1 + 1 + 1 + 1);
 	assert(powerSum(1, 5) == 1 + 2 + 3 + 4 + 5);
