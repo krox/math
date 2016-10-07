@@ -754,7 +754,7 @@ unittest
 			foreach(p; [2,3,5,7,11,13,17,19])
 				assert(binomial(n,k)%p == binomialMod(n,k,p));
 
-	for(int 1 = 0; n < 61; ++n)
+	for(int n = 1; n < 61; ++n)
 		for(int k = 1; k < 61; ++k)
 			assert(binomial(n,k) == binomial(n-1,k) + binomial(n-1,k-1));
 
@@ -831,8 +831,13 @@ struct MultiplicativeFunction(alias fun, alias mult = "a*b", long neutral = 1)
 
 		table.assign(limit+1, neutral);
 		foreach(p; primesBelow(limit+1))
-			for(long x = p; x < table.length; x += p)
-				table[x] = mul(table[x], f(p, powerOf(x, p)));
+			for(long q = p, e = 1; q <= limit; q *= p, ++e)
+			{
+				long a = f(p, e);
+				for(long n = 1; n <= limit/q; ++n)
+					if(n % p != 0)
+						table[n*q] = mul(table[n*q], a);
+			}
 	}
 
 	/** compute f(n) */
