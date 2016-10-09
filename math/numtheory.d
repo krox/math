@@ -60,6 +60,21 @@ long submod(long a, long b, long m) pure nothrow
 }
 
 /**
+ * calculate (-a) % m
+ * conditions: m > 0 and 0 <= a,result < m
+ */
+long negmod(long a, long m) pure nothrow
+{
+	assert(m > 0);
+	assert(0 <= a && a < m);
+
+	if(a == 0)
+		return 0;
+	else
+		return m - a;
+}
+
+/**
  * calculate (a * b) % m
  * (without the overflow problems of the naive expression)
  * conditions: m > 0 and 0 <= a,b,result < m
@@ -469,12 +484,29 @@ bool isPrime(long n) pure nothrow
 		    && isSPRP(            1_795_265_022_L, n);
 }
 
+/**
+ *  return lowest prime > n.
+ *  not suitable for many continous primes, only for individual values.
+ */
+long nextPrime(long n) pure nothrow
+{
+	assert(n < 9223372036854775783L);	// largest 63 bit prime
+	if(n < 2)
+		return 2;
+
+	n = (n+1) | 1;	// round to next odd prime
+	while(!isPrime(n))
+		n += 2;
+	return n;
+}
+
 unittest
 {
 	assert(primesBetween(3,20) == [3,5,7,11,13,17,19]);
 	assert(isPrime(1000000007));
 	assert(isPrime(9223372036854775783L)); // largest 63 bit prime
 	assert(!isPrime(1000000007L*1000000009L));
+	assert(equal(map!nextPrime(iota(0,21)), [2,2,3,5,5,7,7,11,11,11,11,13,13,17,17,17,17,19,19,23,23][]));
 }
 
 
@@ -762,14 +794,16 @@ long fibonacci(long n) pure nothrow
  */
 long fibonacciMod(long n, long m) pure nothrow
 {
-	assert(m >= 2);
-	assert(m < int.max);
+	if(m == 2)
+		return n%3 == 0 ? 0 : 1;
+
+	assert(m >= 3);
 
 	if(n == 0)
 		return 0;
 	if(n < 0)
 		if(n % 2 == 0)
-			return (m-fibonacciMod(-n,m))%m;
+			return negmod(fibonacciMod(-n,m), m);
 		else
 			return fibonacciMod(-n,m);
 
@@ -780,15 +814,15 @@ long fibonacciMod(long n, long m) pure nothrow
 	{
 		if (n % 2 == 1)
 		{
-			long t = (d*(b + a) + c*b)%m;
-			a = (d*b + c*a)%m;
+			long t = addmod(mulmod(d, addmod(b,a,m),m), mulmod(c,b,m), m);
+			a = addmod(mulmod(d,b,m), mulmod(c,a,m), m);
 			b = t;
 		}
-		long t = (d*(2*c + d))%m;
-		c = (c*c + d*d)%m;
+		long t = mulmod(d, addmod(mulmod(2,c,m), d, m), m);
+		c = addmod(mulmod(c,c,m), mulmod(d,d,m), m);
 		d = t;
 	}
-	return (a + b)%m;
+	return addmod(a,b,m);
 }
 
 /**
