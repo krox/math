@@ -721,6 +721,76 @@ long binomialMod(long n, long k, long p)
 	return (r * invmod(s,p)) % p;
 }
 
+
+/**
+ *  compute the n'th fibonacci number
+ *  f(0) = 0, f(1) = 1, f(n+2) = f(n) + f(n+1)
+ *  n must be in the range [-92,92], so that the result fits into a long
+ */
+long fibonacci(long n) pure nothrow
+{
+	assert(-92 <= n && n <= 92);
+
+	if(n == 0)
+		return 0;
+	if(n < 0)
+		if(n % 2 == 0)
+			return -fibonacci(-n);
+		else
+			return fibonacci(-n);
+
+	long a = 1, b = 0, c = 0, d = 1;
+	if (n <= 0)
+		return 0;
+	for(n -= 1; n > 0; n /= 2)
+	{
+		if (n % 2 == 1)
+		{
+			long t = d*(b + a) + c*b;
+			a = d*b + c*a;
+			b = t;
+		}
+		long t = d*(2*c + d);
+		c = c*c + d*d;
+		d = t;
+	}
+	return a + b;
+}
+
+/**
+ * fibonacci(n) % m
+ */
+long fibonacciMod(long n, long m) pure nothrow
+{
+	assert(m >= 2);
+	assert(m < int.max);
+
+	if(n == 0)
+		return 0;
+	if(n < 0)
+		if(n % 2 == 0)
+			return (m-fibonacciMod(-n,m))%m;
+		else
+			return fibonacciMod(-n,m);
+
+	long a = 1, b = 0, c = 0, d = 1;
+	if (n <= 0)
+		return 0;
+	for(n -= 1; n > 0; n /= 2)
+	{
+		if (n % 2 == 1)
+		{
+			long t = (d*(b + a) + c*b)%m;
+			a = (d*b + c*a)%m;
+			b = t;
+		}
+		long t = (d*(2*c + d))%m;
+		c = (c*c + d*d)%m;
+		d = t;
+	}
+	return (a + b)%m;
+}
+
 /**
  * caclulate 1^k + 2^k + .. + n^k using Faulhaber's formula
  *
@@ -746,17 +816,25 @@ unittest
 {
 	assert(factorial(0) == 1);
 	assert(factorial(5) == 120);
+
 	assert(binomial(0,0) == 1);
 	assert(binomial(4,2) == 6);
-
 	for(int n = 0; n < 61; ++n)
 		for(int k = 0; k < 61; ++k)
 			foreach(p; [2,3,5,7,11,13,17,19])
 				assert(binomial(n,k)%p == binomialMod(n,k,p));
-
 	for(int n = 1; n < 61; ++n)
 		for(int k = 1; k < 61; ++k)
 			assert(binomial(n,k) == binomial(n-1,k) + binomial(n-1,k-1));
+
+	assert(fibonacci(0) == 0);
+	assert(fibonacci(1) == 1);
+	for(int i = -50; i < 50; ++i)
+	{
+		assert(fibonacci(i) == fibonacci(i-1) + fibonacci(i-2));
+		for(int m = 2; m < 20; ++m)
+			assert((fibonacci(i)%m+m)%m == fibonacciMod(i,m));
+	}
 
 	assert(powerSum(0, 5) == 1 + 1 + 1 + 1 + 1);
 	assert(powerSum(1, 5) == 1 + 2 + 3 + 4 + 5);
