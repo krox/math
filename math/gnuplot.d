@@ -47,6 +47,18 @@ class Gnuplot
 		plot(xs[], ys[], title);
 	}
 
+	void plot(double delegate(double) fun, double a, double b, int n = 100, string title = null)
+	{
+		auto xs = new double[n];
+		auto ys = new double[n];
+		for(int i = 0; i < n; ++i)
+		{
+			xs[i] = a + (b-a)/(n-1)*i;
+			ys[i] = fun(xs[i]);
+		}
+		plot(xs[], ys[], title);
+	}
+
 	/** plot raw data points */
 	void plot(RangeX, RangeY)(RangeX xs, RangeY ys, string title = null, string style = "linespoints")
 		if(isInputRange!RangeX && isInputRange!RangeY && is(ElementType!RangeX:double) && is(ElementType!RangeY:double))
