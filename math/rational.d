@@ -71,6 +71,12 @@ struct Rational
 			return num.toString ~ "/" ~ denom.toString;
 	}
 
+	double opCast(T)() const
+		if(is(T == double))
+	{
+		return cast(double)num / cast(double)denom;
+	}
+
 	/** return -1 / 0 / +1, faster than actual compare */
 	int sign() const
 	{
@@ -101,6 +107,7 @@ struct Rational
 		else static if(op == "-") return Rational(num - denom*b, denom);
 		else static if(op == "*") return Rational(num*b, denom);
 		else static if(op == "/") return Rational(num, denom*b);
+		else static if(op == "^^") return Rational(num^^b, denom^^b);
 		else static assert(false, "binary '"~op~"' is not defined");
 	}
 
@@ -110,6 +117,7 @@ struct Rational
 		else static if(op == "-") return Rational(num - denom*b, denom);
 		else static if(op == "*") return Rational(num*b, denom);
 		else static if(op == "/") return Rational(num, denom*b);
+		else static if(op == "^^") return Rational(num^^b, denom^^b);
 		else static assert(false, "binary '"~op~"' is not defined");
 	}
 

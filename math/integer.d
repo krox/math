@@ -90,11 +90,18 @@ struct Integer
 		return to!string(__gmpz_get_str(buf.ptr, 10, ptr));
 	}
 
-	/** returns value as int, assuming it is small enough */
+	/** returns value as int, asserting it is small enough */
 	int opCast(T)() const
 		if(is(T == int))
 	{
-		return __gmpz_get_si(z);
+		assert(int.min <= this && this <= int.max);
+		return cast(int)__gmpz_get_si(ptr);
+	}
+
+	double opCast(T)() const
+		if(is(T == double))
+	{
+		return __gmpz_get_d(ptr);
 	}
 
 	/** test if bit i is set */
@@ -245,6 +252,7 @@ struct Integer
 		else static if(op == "*") __gmpz_mul(r.ptr, ptr, b.ptr);
 		else static if(op == "/") __gmpz_fdiv_q(r.ptr, ptr, b.ptr);
 		else static if(op == "%") __gmpz_fdiv_r(r.ptr, ptr, b.ptr);
+		else static if(op == "^^") return this^^cast(int)b;
 		else static assert(false, "binary '"~op~"' is not defined");
 
 		return Integer(cast(immutable)r);
