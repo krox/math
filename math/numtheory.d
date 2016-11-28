@@ -121,13 +121,13 @@ long powmod(long a, long b, long m) pure nothrow
 
 /**
  * calculate the modular inverse a^-1 % m
- * conditions: m > 0 and 0 <= a,result < m
- * triggers division by zero if gcd(x, m) != 1
+ * conditions: m > 0 and 0 <= a,result < m and gcd(a, m) = 1
  */
 long invmod(long a, long m) pure nothrow
 {
 	assert(m > 0);
 	assert(0 <= a && a < m);
+	assert(gcd(a,m) == 1);
 
 	long a0 = m;
 	long a1 = a;
@@ -149,7 +149,16 @@ long invmod(long a, long m) pure nothrow
 	if(b1 < 0)
 		b1 += m;
 	assert(0 <= b1 && b1 < m);
+	//assert(mulmod(b1, a, m) == 1);
 	return b1;
+}
+
+unittest
+{
+	for(long m = 1; m <= 20; ++m)
+		for(long x = 1; x < m; ++x)
+			if(gcd(x,m) == 1)
+				assert(x * invmod(x,m) % m == 1);
 }
 
 /**
@@ -846,6 +855,37 @@ long powerSum(long k, long n) pure nothrow
 	}
 }
 
+/**
+ * calculate 1 + a + a^2 + ... + a^n = (a^(n+1) - 1) / (a - 1) mod m
+ * without division which might be problematic if a-1 and m are not coprime
+ * a = 0 is allowed (using 0^0 = 1)
+ */
+long geometricMod(long a, long n, long m) pure nothrow
+{
+	assert(m > 0);
+	assert(0 <= a && a < m);
+	assert(n >= 0);
+
+	long factor = 1;
+	long sum = 0;
+
+	while(n > 0 && a != 0)
+	{
+		if(n % 2 == 0)
+		{
+			sum = addmod(sum, mulmod(factor, powmod(a, n, m), m), m);
+			n--;
+		}
+
+		factor = mulmod(addmod(1,a,m), factor, m);
+		a = mulmod(a, a, m);
+
+		n /= 2;
+	}
+
+	return addmod(sum, factor, m);
+}
+
 unittest
 {
 	assert(factorial(0) == 1);
@@ -874,6 +914,21 @@ unittest
 	assert(powerSum(1, 5) == 1 + 2 + 3 + 4 + 5);
 	assert(powerSum(2, 5) == 1*1 + 2*2 + 3*3 + 4*4 + 5*5);
 	assert(powerSum(3, 5) == 1*1*1 + 2*2*2 + 3*3*3 + 4*4*4 + 5*5*5);
+
+	for(int a = 0; a < 15; ++a)
+		for(long n = 0; n < 15; ++n)
+		{
+			long x = geometricMod(a, n, long.max);
+			long y;
+			if(a == 0)
+				y = 1;
+			else if(a == 1)
+				y = n+1;
+			else
+				y = (a^^(n+1)-1)/(a-1);
+
+			assert(x == y);
+		}
 }
 
 
