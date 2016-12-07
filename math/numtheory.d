@@ -398,6 +398,26 @@ immutable(long)[] primes(long n)
 	return primes(0, n);
 }
 
+/** same as primes(n).length, but faster. O(n^(1/2+ϵ)). */
+long countPrimes(long n)
+{
+	static long f(long n, const long[] ps)
+	{
+		if(n == 0)
+			return 0;
+		long r = n;
+		foreach(i, p; ps)
+			r -= f(n/p, ps[i+1..$]);
+		return r;
+	}
+
+	if(n < 2)
+		return 0;
+
+	auto p = primes(sqrti(n));
+	return f(n, p[])-1+p.length;
+}
+
 /**
  * tests wether n is a strong probable prime to base a
  * conditions a >= 0 and n >= 3 odd
@@ -512,6 +532,9 @@ unittest
 	assert(isPrime(9223372036854775783L)); // largest 63 bit prime
 	assert(!isPrime(1000000007L*1000000009L));
 	assert(equal(map!nextPrime(iota(0,21)), [2,2,3,5,5,7,7,11,11,11,11,13,13,17,17,17,17,19,19,23,23][]));
+
+	for(int n = 0; n < 1000; ++n)
+		assert(countPrimes(n) == primes(n).length);
 }
 
 
