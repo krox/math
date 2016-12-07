@@ -305,22 +305,18 @@ unittest
 /// prime number generation and testing
 //////////////////////////////////////////////////////////////////////
 
-/** generate all prime numbers below n using a simple sieve */
-Array!long calculatePrimesBelow(long n)
+/** generate all prime numbers <= n using Eratosthenes */
+Array!long calculatePrimes(long n)
 {
 	if(n < 0)
 		n = 0;
 
-	if(n > size_t.max) // can only trigger on a 32 bit system
-		throw new Exception("can not calculate that many primes");
-
-	// (exclusive) limit for relevant prime divisors
-	long limit = cast(long)sqrt(cast(double)n) + 1;
-	assert(limit*limit > n); // not sure about floating-point rounding for very large n ...
-
 	// excluding 2 and 3 as special cases, all primes have the form 6*k +- 1
-	auto b5 = BitArray(cast(size_t)n/6); // b5[k] represents 6*k+5
-	auto b7 = BitArray(cast(size_t)n/6); // b7[k] represents 6*k+7
+	auto b5 = BitArray(n/6+1); // b5[k] represents 6*k+5
+	auto b7 = BitArray(n/6+1); // b7[k] represents 6*k+7
+
+	// limit for relevant prime divisors
+	long limit = sqrti(max(6*(b7.length-1)+7, 6*(b5.length-1)+5));
 
 	// mark all non-primes
 	// NOTE: in older versions of DMD, making k an ulong triggers a strange bug:
@@ -331,7 +327,7 @@ Array!long calculatePrimesBelow(long n)
 		{
 			long p = 6*k+5;
 
-			if(p >= limit)
+			if(p > limit)
 				break;
 
 			for(long s = (p*(p+2)-5)/6; s < b5.length; s += p)
@@ -345,7 +341,7 @@ Array!long calculatePrimesBelow(long n)
 		{
 			long p = 6*k+7;
 
-			if(p >= limit)
+			if(p > limit)
 				break;
 
 			for(long s = (p*(p+4)-5)/6; s < b5.length; s += p)
@@ -361,7 +357,7 @@ Array!long calculatePrimesBelow(long n)
 	primes.reserve(b5.count(false) + b7.count(false) + 2);
 	primes.pushBack(2);
 	primes.pushBack(3);
-	for(long k = 0; k < n/6; ++k)
+	for(long k = 0; k < n/6+1; ++k)
 	{
 		if(!b5[cast(size_t)k])
 			primes.pushBack(6L*k+5);
@@ -371,35 +367,35 @@ Array!long calculatePrimesBelow(long n)
 
 	// now we might have computed slightly more primes than requested,
 	// so we remove them again (simpler than doing it right in the beginning)
-	while(!primes.empty && primes[$-1] >= n)
+	while(!primes.empty && primes[$-1] > n)
 		primes.popBack;
 
 	return primes;
 }
 
 /**
- * returns all primes in [a..b) using cached results from calculatePrimesBelow
+ * returns all primes in [a..b] using cached results from calculatePrimes
  */
-immutable(long)[] primesBetween(long a, long b)
+immutable(long)[] primes(long a, long b)
 {
 	static immutable(long)[] cache;
-	static long limit = 2;
+	static long limit = 1;
 
 	if(b > limit)
 	{
 		limit = max(b, limit+limit/2);
-		cache = assumeUnique(calculatePrimesBelow(limit).release);
+		cache = assumeUnique(calculatePrimes(limit).release);
 	}
 
-	return cache[].assumeSorted.upperBound(a-1).lowerBound(b).release;
+	return cache[].assumeSorted.upperBound(a-1).lowerBound(b+1).release;
 }
 
 /**
- * alias for primesBetween(0, n)
+ * alias for primes(0, n)
  */
-immutable(long)[] primesBelow(long n)
+immutable(long)[] primes(long n)
 {
-	return primesBetween(0, n);
+	return primes(0, n);
 }
 
 /**
@@ -511,7 +507,7 @@ long nextPrime(long n) pure nothrow
 
 unittest
 {
-	assert(primesBetween(3,20) == [3,5,7,11,13,17,19]);
+	assert(primes(3,19) == [3,5,7,11,13,17,19]);
 	assert(isPrime(1000000007));
 	assert(isPrime(9223372036854775783L)); // largest 63 bit prime
 	assert(!isPrime(1000000007L*1000000009L));
@@ -997,7 +993,7 @@ struct MultiplicativeFunction(alias fun, alias mult = "a*b", long neutral = 1)
 			return;
 
 		table.assign(limit+1, neutral);
-		foreach(p; primesBelow(limit+1))
+		foreach(p; primes(limit))
 			for(long q = p, e = 1; q <= limit; q *= p, ++e)
 			{
 				long a = f(p, e);
@@ -1209,7 +1205,7 @@ long lcm(long a, long b) pure nothrow
  */
 bool isSquareFree(long a)
 {
-	foreach(p; primesBelow(sqrti(a)+1))
+	foreach(p; primes(sqrti(a)))
 		if(a % (p*p) == 0)
 			return false;
 
