@@ -753,7 +753,6 @@ long binomialMod(long n, long k, long p)
 	assert(n >= 0 && k >= 0);
 	if(k > n)
 		return 0;
-	assert(n < int.max);	// need to use "mulmod" and such if you want this
 
 	long r = 1;
 	long s = 1;
@@ -773,12 +772,12 @@ long binomialMod(long n, long k, long p)
 
 		for(long i = 1; i <= b; ++i)
 		{
-			r = (r * (a + 1 - i)) % p;
-			s = (s * i) % p;
+			r = mulmod(r, a + 1 - i, p);
+			s = mulmod(s, i, p);
 		}
 	}
 
-	return (r * invmod(s,p)) % p;
+	return mulmod(r, invmod(s, p), p);
 }
 
 
