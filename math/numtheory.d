@@ -452,20 +452,36 @@ bool isSPRP(long a, long n) pure nothrow
 	return false;
 }
 
+/** Test if n is prime. */
+bool isPrime(long n) pure nothrow
+{
+	if(n < 53)	// includes the trivial n < 0 case
+		switch(n)
+		{
+			case 2,3,5,7,11,13,17,19,23,29,31,37,41,43,47:
+				return true;
+			default:
+				return false;
+		}
+
+	foreach(p; [2,3,5,7,11,13,17,19,23,29,31,37,41,43,47])
+		if(n % p == 0)
+			return false;
+
+	if(n < 53*53)
+		return true;
+
+	return isPrimeMillerRabin(n);
+}
+
 /**
- * test if n is prime
- *
+ * Deterministic version of Miller-Rabin primality test.
+ * Use this after small factors have been tested.
  * see http://priv.ckp.pl/wizykowski/sprp.pdf for implementation details and
  * http://miller-rabin.appspot.com for the actual values used therein.
  */
-bool isPrime(long n) pure nothrow
+bool isPrimeMillerRabin(long n) pure nothrow
 {
-	if(n < 2)
-		return false;
-
-	if(n % 2 == 0)
-		return n == 2;
-
 	if(n < 291_831_L)
 		return isSPRP(  126_401_071_349_994_536_L, n);
 
@@ -614,14 +630,26 @@ Factorization factor(long n)
 {
 	assert(n > 0);
 
+	long m = n;
 	Factorization f;
-	if(n == 1)
-		return f;
-	f.pushBack(tuple(n,1));
 
-	for(int i = 0; i < f.length; ++i)
+	foreach(long p; [2,3,5,7,11,13,17,19,23,29,31,37,41,43,47])
 	{
-		while(!isPrime(f[i][0]))
+		if(p*p > m)
+			break;
+		while(m % p == 0)
+		{
+			m /= p;
+			f.pushBack(tuple(p, 1));
+		}
+	}
+	if(m > 1)
+		f.pushBack(tuple(m, 1));
+
+	if(m >= 53*53) for(size_t i = f.length-1; i < f.length; ++i)
+	{
+		// NOTE: don't do trial factorizing in prime-test. small factors already done.
+		while(!isPrimeMillerRabin(f[i][0]))
 		{
 			long d = f[i][0];
 			for(int c = 1; d == f[i][0]; ++c)
