@@ -11,7 +11,7 @@ module math.numtheory;
 
 import jive.array;
 import jive.bitarray;
-private import std.math : log, sqrt;
+private import std.math : log, sqrt, cbrt;
 private import core.bitop : bsf;
 private import std.typecons;
 private import std.algorithm;
@@ -978,6 +978,15 @@ long sqrti(long a) pure nothrow
 	return r;
 }
 
+/** return floor(cbrt(a)) */
+long cbrti(long a) /*pure*/ nothrow
+{
+	assert(a >= 0);
+	auto r = cast(long)cbrt(cast(real)a);
+	assert(r*r*r <= a && a < (r+1)*(r+1)*(r+1));
+	return r;
+}
+
 
 //////////////////////////////////////////////////////////////////////
 /// number theoretic functions
@@ -1222,25 +1231,71 @@ long lcm(long a, long b) pure nothrow
 		return a/gcd(a,b)*b;
 }
 
-/**
- * determine if a is square-free (i.e. not divisable by a square other than 1)
- */
-bool isSquareFree(long a)
+/** determine if n is a perfect square (OEIS A000290) */
+bool isSquare(long n) pure nothrow
 {
-	foreach(p; primes(sqrti(a)))
-		if(a % (p*p) == 0)
-			return false;
-
-	return true;
+	if(n < 0)
+		return false;
+	auto r = sqrti(n);
+	return r*r == n;
 }
 
-/** determine if a is a perfect square */
-bool isSquare(long a) pure nothrow
+/** determine if n is a perfect cube (OEIS A000578) */
+bool isCube(long n) /*pure*/ nothrow
 {
-	if(a < 0)
-		return false;
-	auto r = sqrti(a);
-	return r*r == a;
+	assert(n >= 0);
+	auto r = cbrti(n);
+	return r*r*r == n;
+}
+
+/**
+ * Determine if n is square-free, i.e. not divisable by a square other than 1.
+ * Takes O(n^(1/3+ϵ)) time. (OEIS A005117)
+ */
+bool isSquareFree(long n)
+{
+	assert(n > 0);
+	foreach(p; primes(cbrti(n)))
+	{
+		if(p*p*p > n)
+			break;
+		if(n % p == 0)
+		{
+			n /= p;
+			if(n % p == 0)
+				return false;
+		}
+	}
+	return n == 1 || !isSquare(n);
+}
+
+/**
+ * Count square-free numbers <= n. O(n^(1/2+ϵ)). (OEIS A013928, different offset)
+ */
+long countSquareFree(long n)
+{
+	long f(long n, const long[] primes)
+	{
+		long r = n;
+		foreach(i, p; primes)
+		{
+			if(n/p/p == 0)
+				break;
+			r -= f(n/p/p, primes[i+1..$]);
+		}
+		return r;
+	}
+
+	if(n < 1)
+		return 0;
+	return f(n, primes(sqrti(n)));
+}
+
+unittest
+{
+	assert(countSquareFree(100000000) == 60792694);
+	assert(count!isSquareFree(iota(1,10000)) == 6083);
+	assert(equal(filter!isSquareFree(iota(1,100)), [1,2,3,5,6,7,10,11,13,14,15,17,19,21,22,23,26,29,30,31,33,34,35,37,38,39,41,42,43,46,47,51,53,55,57,58,59,61,62,65,66,67,69,70,71,73,74,77,78,79,82,83,85,86,87,89,91,93,94,95,97][]));
 }
 
 /**
@@ -1249,8 +1304,6 @@ bool isSquare(long a) pure nothrow
  */
 long primitiveRoot(long n)
 {
-	import std.stdio;
-
 	if(n <= 1)
 		throw new Exception("invalid modulus");
 	if(n == 2)
