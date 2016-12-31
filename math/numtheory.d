@@ -9,6 +9,15 @@ module math.numtheory;
  * cases where 32-bit computions would suffice.
  */
 
+ /+
+TODO (or decide not to, if not worth it)
+- dont use the slow overflow-safe modular functions when modulus is small
+- use a general purpose table of prime factors ("smpf") to speed up various functions
+- prime number generation of segments not starting at 2
+- "BitArray isPrime" is smaller than "long[] primes" for realisitc sizes. Should that be used more?
+- skip even numbers in the tables of MultuplicativeFunction's. Saves half the memory and should be trivial to recompute on the fly.
++/
+
 import jive.array;
 import jive.bitarray;
 private import std.math : log, sqrt, cbrt;
@@ -113,9 +122,18 @@ long powmod(long a, long b, long m) pure nothrow
 	}
 
 	long r = 1;
-	for(; b != 0; b >>= 1, a = mulmod(a, a, m))
-		if(b & 1)
-			r = mulmod(r, a, m);
+	if(m <= int.max) // no risk for overflow -> use faster direct expressions
+	{
+		for(; b != 0; b >>= 1, a = a*a%m)
+			if(b & 1)
+				r = r*a%m;
+	}
+	else
+	{
+		for(; b != 0; b >>= 1, a = mulmod(a, a, m))
+			if(b & 1)
+				r = mulmod(r, a, m);
+	}
 	return r;
 }
 
@@ -398,26 +416,6 @@ immutable(long)[] primes(long n)
 	return primes(0, n);
 }
 
-/** same as primes(n).length, but faster. O(n^(1/2+ϵ)). */
-long countPrimes(long n)
-{
-	static long f(long n, const long[] ps)
-	{
-		if(n == 0)
-			return 0;
-		long r = n;
-		foreach(i, p; ps)
-			r -= f(n/p, ps[i+1..$]);
-		return r;
-	}
-
-	if(n < 2)
-		return 0;
-
-	auto p = primes(sqrti(n));
-	return f(n, p[])-1+p.length;
-}
-
 /**
  * tests wether n is a strong probable prime to base a
  * conditions a >= 0 and n >= 3 odd
@@ -549,8 +547,9 @@ unittest
 	assert(!isPrime(1000000007L*1000000009L));
 	assert(equal(map!nextPrime(iota(0,21)), [2,2,3,5,5,7,7,11,11,11,11,13,13,17,17,17,17,19,19,23,23][]));
 
-	for(int n = 0; n < 1000; ++n)
-		assert(countPrimes(n) == primes(n).length);
+	//TODO: implement countPrimes which is actually fast
+	//for(int n = 0; n < 1000; ++n)
+	//	assert(countPrimes(n) == primes(n).length);
 }
 
 
@@ -1353,6 +1352,28 @@ long primitiveRoot(long n)
 	}
 
 	throw new Exception("no primitive root found");
+}
+
+/** check if x is a primitive root mod n */
+bool isPrimitiveRoot(long x, long n)
+{
+	assert(n > 1);
+	assert(0 <= x && x < n);
+
+	if(n == 2)
+		return x % n != 0;
+
+	auto p = phi(n);
+	auto fs = factor(p);
+
+	if(gcd(x,n) != 1)
+		return false;
+
+	foreach(f; fs)
+		if(powmod(x, p/f[0], n) == 1)
+			return false;
+
+	return true;
 }
 
 /** Caclulate f(f(f(...f(x)...))) using Brent's cycle finding method */
