@@ -12,7 +12,6 @@ module math.numtheory;
  /+
 TODO (or decide not to, if not worth it)
 - dont use the slow overflow-safe modular functions when modulus is small
-- use a general purpose table of prime factors ("smpf") to speed up various functions
 - prime number generation of segments not starting at 2
 - "BitArray isPrime" is smaller than "long[] primes" for realisitc sizes. Should that be used more?
 - skip even numbers in the tables of MultuplicativeFunction's. Saves half the memory and should be trivial to recompute on the fly.
@@ -401,7 +400,7 @@ immutable(long)[] primes(long a, long b)
 
 	if(b > limit)
 	{
-		limit = max(b, limit+limit/2);
+		limit = max(b, 2*limit);
 		cache = assumeUnique(calculatePrimes(limit).release);
 	}
 
@@ -558,22 +557,170 @@ unittest
 //////////////////////////////////////////////////////////////////////
 
 /**
- * convenience wrapper around Array!(Tuple!(long,int)) for integer factorization
+ * Find a prime factor of a positive number. For small numbers we use a table
+ * (automatically extended up to tableLimit). For larger numbers we do some
+ * trial division and pollard rho alrogithm for the serious cases. Typically,
+ * the smallest prime factor is returned, but that is not guaranteed. In
+ * particular for large numbers with prime factors of similar size, a bigger
+ * one might be found first.
+ */
+struct primeFactor
+{
+	static:
+
+	// (smallest) prime factor of odd numbers. zero for prime numbers.
+	private Array!ushort table;
+
+	// limit up to which auto-extend the table
+	enum long tableLimit = 1L<<28; // that is a 256MiB table at full size
+
+	long currLimit() @property
+	{
+		return 2*table.length;
+	}
+
+	void makeTable(long limit)
+	{
+		if(limit <= currLimit)
+			return;
+
+		// change table to a larger integer type or do some tighter packing to increase this limit
+		if(sqrti(limit) > ushort.max)
+			assert(false);
+
+		table.assign((limit+1)/2, 0);
+		foreach(p; primes(3, sqrti(limit)))
+			for(long k = p*p/2; k < table.length; k += p)
+				if(table[k] == 0)
+					table[k] = cast(ushort)p;
+	}
+
+	long opCall(long n)
+	{
+		assert(n > 1);
+
+		// even numbers are easy
+		if(n % 2 == 0)
+			return 2;
+
+		// already computed values
+		if(n <= currLimit)
+			if(table[n/2] == 0)
+				return n;
+			else
+				return table[n/2];
+
+		// auto extend table if n is not too large
+		if(n <= tableLimit)
+		{
+			makeTable(min(max(n, 2*currLimit), tableLimit));
+			if(table[n/2] == 0)
+				return n;
+			else
+				return table[n/2];
+		}
+
+		// a little trial division
+		foreach(long p; [3,5,7,11,13,17,19,23,29,31,37,41,43,47])
+			if(n % p == 0)
+				return p;
+
+		// Actual factorizing algorithm.
+		// by now we now that n is large and does not contain very small
+		// factors. So we use the low-overhead version of isPrime
+		long c = 1;
+		while(!isPrimeMillerRabin(n))
+			n = pollardRho(n, c++);
+		return n;
+	}
+}
+
+/**
+ * range over all prime factors (with multiplicity) of a number.
+ * See primeFactor(...) for algorithmic details.
+ *  - Using this range does not invoke any memory allocation. So factoring a
+ *    lot of small numbers should be quite fast
+ *  - order of prime factors is typically ascending, but that is not guaranteed
+ */
+struct factors
+{
+	private long p = 1; // current prime factor
+	private int r = 0; // multiplicity of current factor
+	private long n; // remaining stuff to be factored (f already removed)
+
+	@disable this();
+
+	this(long n)
+	{
+		assert(n > 0);
+		this.n = n;
+		popFront();
+	}
+
+	bool empty() const @property
+	{
+		return p == 1;
+	}
+
+	Tuple!(long,int) front() const @property
+	{
+		return Tuple!(long,int)(p,r);
+	}
+
+	void popFront()
+	{
+		if(n == 1)
+		{
+			p = 1;
+			r = 0;
+			return;
+		}
+
+		p = primeFactor(n);
+		assert(n % p == 0);
+		r = 1;
+		n /= p;
+		while(n % p == 0)
+		{
+			++r;
+			n /= p;
+		}
+	}
+}
+
+/**
+ * prime factorization of a positive number. Actually just a thin wrapper
+ * around Array!(Tuple!(long,int))(factors(n)). In most cases you should use
+ * factors(n) directly. But this wrapper provides:
+ *   - prime factors are guaranteed to be in ascending order
+ *   - there is a nice (human readable) toString method
  */
 struct Factorization
 {
-	Array!(Tuple!(long,int)) factors;
-	alias factors this;
+	Array!(Tuple!(long,int)) fs;
+	alias fs this;
+
+	this(long n)
+	{
+		assert(n > 0);
+
+		foreach(f; factors(n))
+			fs.pushBack(f);
+
+		normalize();
+		assert(multiply == n);
+		//assert(allPrime);
+	}
 
 	/**
 	 * puts the product in human readable form
 	 */
 	string toString() const @property
 	{
-		if(factors.empty)
+		if(this.empty)
 			return "1";
 		string r;
-		foreach(f; factors)
+		foreach(f; this)
 		{
 			if(f[1] == 1)
 				r ~= format("(%s)", f[0]);
@@ -589,11 +736,11 @@ struct Factorization
 	 */
 	void normalize()
 	{
-		sort!"a[0] < b[0]"(factors[]);
-		foreach(i, f, ref bool rem; &factors.prune)
-			if(i+1 < factors.length && f[0] == factors[i+1][0])
+		sort!"a[0] < b[0]"(this[]);
+		foreach(i, f, ref bool rem; &this.prune)
+			if(i+1 < this.length && f[0] == this[i+1][0])
 			{
-				factors[i+1][1] += f[1];
+				this[i+1][1] += f[1];
 				rem = true;
 			}
 	}
@@ -604,7 +751,7 @@ struct Factorization
 	long multiply() pure nothrow const @property
 	{
 		long r = 1;
-		foreach(f; factors)
+		foreach(f; this)
 			for(int i = 0; i < f[1]; ++i)
 				r *= f[0];
 		return r;
@@ -615,7 +762,7 @@ struct Factorization
 	 */
 	bool allPrime() pure nothrow const @property
 	{
-		foreach(f; factors)
+		foreach(f; this)
 			if(!isPrime(f[0]))
 				return false;
 		return true;
@@ -623,59 +770,20 @@ struct Factorization
 }
 
 /**
- * factorize a number using pollard rho
+ * find a factor of n using a simple Pollard rho algorithm.
+ * returns either a proper factor of n (which is not necessarily prime), or n
+ * if none was found. in the latter case try using a different value for c.
+ * make sure n is composite before calling this, no check is performed (result
+ * is correct but slow for prime n). For composite n the heuristic runtime is
+ * O(n^(1/4)), but depends pseudo-randomly ony the parameter c.
  */
-Factorization factor(long n)
-{
-	assert(n > 0);
-
-	long m = n;
-	Factorization f;
-
-	foreach(long p; [2,3,5,7,11,13,17,19,23,29,31,37,41,43,47])
-	{
-		if(p*p > m)
-			break;
-		while(m % p == 0)
-		{
-			m /= p;
-			f.pushBack(tuple(p, 1));
-		}
-	}
-	if(m > 1)
-		f.pushBack(tuple(m, 1));
-
-	if(m >= 53*53) for(size_t i = f.length-1; i < f.length; ++i)
-	{
-		// NOTE: don't do trial factorizing in prime-test. small factors already done.
-		while(!isPrimeMillerRabin(f[i][0]))
-		{
-			long d = f[i][0];
-			for(int c = 1; d == f[i][0]; ++c)
-				d = findFactor(f[i][0], 0, c);
-
-			f[i][0] /= d;
-			f.pushBack(tuple(d, 1));
-		}
-	}
-
-	f.normalize();
-	assert(f.multiply == n);
-	//assert(f.allPrime);
-	return f;
-}
-
-/**
- * find a factor of n using basic pollard rho
- * returns either a proper factor of n (which is not necessarily prime),
- * or n if none was found. in the latter case try using a different value for c
- */
-long findFactor(long n, long x0, long c) pure nothrow
+long pollardRho(long n, long c) pure nothrow
 {
 	assert(n > 0);
 	assert(0 < c && c < n);
 
-	long x = x0; // arbitrary start value. Actual randomization might be good...
+	// arbitrary start value. Could be randomized, the parameter c seems to be sufficient variation for now.
+	long x = 0;
 	long runLength = 1;
 
 	while(true)
@@ -698,35 +806,35 @@ long findFactor(long n, long x0, long c) pure nothrow
 
 unittest
 {
-	assert(factor(2*2*2*2*3*5*5*7)[] == [tuple(2,4),tuple(3,1),tuple(5,2),tuple(7,1)]);
-	assert(factor(1000000007L*1000000009L)[] == [tuple(1000000007L,1), tuple(1000000009L,1)]);
+	assert(Factorization(2*2*2*2*3*5*5*7)[] == [tuple(2,4),tuple(3,1),tuple(5,2),tuple(7,1)]);
+	assert(Factorization(1000000007L*1000000009L)[] == [tuple(1000000007L,1), tuple(1000000009L,1)]);
 }
 
+/**
+ * list all divisors of a positive number
+ */
 Array!long divisors(long n)
 {
-    // factor the number
-    auto fs = factor(n);
+	assert(n > 0);
 
-    // number of divisors (equal to tau(this.multiply))
-    long count = 1;
-    foreach(f; fs.factors)
-        count *= f[1] + 1;
+	// TODO: for large n (when tau is not from a table), n is factored twice
 
     Array!long d;
-    d.reserve(count);
+    d.reserve(tau(n));
     d.pushBack(1);
 
-    foreach(f; fs.factors)
+    foreach(f; factors(n))
     {
         long oldCount = d.length;
         for(long i = 0; i < f[1]*oldCount; ++i)
             d.pushBack(f[0] * d[$-oldCount]);
     }
 
-    assert(d.length == count);
+    assert(d.length == d.capacity);
     sort(d[]);
     return d;
 }
+
 
 //////////////////////////////////////////////////////////////////////
 /// combinatoric functions
@@ -1038,7 +1146,7 @@ struct MultiplicativeFunction(alias fun, alias mult = "a*b", long neutral = 1)
 {
 	static:
 
-	enum tableLimit = 1_000_000L;
+	enum tableLimit = 1L<<25; // that is a 256MiB table at full size
 	alias f = binaryFun!(fun, "p", "e");
 	alias mul = binaryFun!(mult, "a", "b");
 
@@ -1080,7 +1188,7 @@ struct MultiplicativeFunction(alias fun, alias mult = "a*b", long neutral = 1)
 
 		// exceed table limit -> compute by explicit factoring
 		long r = neutral;
-		foreach(i; factor(n))
+		foreach(i; factors(n))
 			r = mul(r, f(i[0], i[1]));
 		return r;
 	}
@@ -1125,7 +1233,7 @@ long derivative(long n)
 		return -derivative(-n);
 
 	long r = 0;
-	foreach(f; factor(n))
+	foreach(f; factors(n))
 		r += n / f[0] * f[1];
 	return r;
 }
@@ -1337,7 +1445,7 @@ long primitiveRoot(long n)
 		return 1;
 
 	auto p = phi(n);
-	auto fs = factor(p);
+	auto fs = Factorization(p);
 
 	outer: for(long x = 2; x < n; ++x)
 	{
@@ -1363,13 +1471,11 @@ bool isPrimitiveRoot(long x, long n)
 	if(n == 2)
 		return x % n != 0;
 
-	auto p = phi(n);
-	auto fs = factor(p);
-
 	if(gcd(x,n) != 1)
 		return false;
 
-	foreach(f; fs)
+	auto p = phi(n);
+	foreach(f; factors(p))
 		if(powmod(x, p/f[0], n) == 1)
 			return false;
 
