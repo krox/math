@@ -811,28 +811,43 @@ unittest
 }
 
 /**
- * list all divisors of a positive number
+ * Range over all (positive) divisors of a positive number. Divisors are not
+ * strictly ordered, but if x divides y, x will appear before y.
+ * Not a real range with front/popFront, but only opApply. But no heap
+ * allocations at all, which seems to make it slightly faster than putting
+ * everything into an array and iterating over that.
  */
-Array!long divisors(long n)
+struct divisors
 {
-	assert(n > 0);
+	long n;
 
-	// TODO: for large n (when tau is not from a table), n is factored twice
+	@disable this();
 
-    Array!long d;
-    d.reserve(tau(n));
-    d.pushBack(1);
+	this(long n)
+	{
+		assert(n > 0);
+		this.n = n;
+	}
 
-    foreach(f; factors(n))
-    {
-        long oldCount = d.length;
-        for(long i = 0; i < f[1]*oldCount; ++i)
-            d.pushBack(f[0] * d[$-oldCount]);
-    }
+	private static int apply(in int delegate(long) dg, long n, factors fs)
+	{
+		if(fs.empty)
+			return dg(n);
 
-    assert(d.length == d.capacity);
-    sort(d[]);
-    return d;
+		auto p = fs.front;
+		fs.popFront;
+
+		int r;
+		for(; p[1] >= 0; n *= p[0], p[1]--)
+			if((r = apply(dg,n,fs)) != 0)
+				return r;
+		return 0;
+	}
+
+	int opApply(in int delegate(long) dg) const
+	{
+		return apply(dg, 1, factors(n));
+	}
 }
 
 
