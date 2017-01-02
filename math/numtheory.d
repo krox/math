@@ -551,6 +551,42 @@ unittest
 	//	assert(countPrimes(n) == primes(n).length);
 }
 
+/** generate all Hilbert-primes <= n using a simple sieve (OEIS A057948) */
+Array!long calculateHilbertPrimes(long n)
+{
+	if(n < 5)
+		return Array!long.init;
+
+	// initialize sieve array
+	auto b = BitArray((n-1)/4+1); // b[k] represents 4*k+1
+	b[0] = true;	// 1 is not a (Hilbert-)prime
+
+	// cross out all non-primes
+	for(long k = 0; k < b.length; ++k)
+		if(!b[k])
+		{
+			long p = 4*k+1;
+			long s = (p*p-1)/4;	// first index to cross out
+			if(s >= b.length)
+				break;
+			for(; s < b.length; s += p)
+				b[s] = true;
+		}
+
+	// collect primes into array
+	Array!long primes;
+	primes.reserve(b.count(false));
+	for(long k = 0; k < b.length; ++k)
+		if(!b[k])
+			primes.pushBack(4*k+1);
+	return primes;
+}
+
+unittest
+{
+	assert(equal(calculateHilbertPrimes(200)[], [5,9,13,17,21,29,33,37,41,49,53,57,61,69,73,77,89,93,97,101,109,113,121,129,133,137,141,149,157,161,173,177,181,193,197][]));
+}
+
 
 //////////////////////////////////////////////////////////////////////
 /// integer factorization
@@ -1495,6 +1531,21 @@ bool isPrimitiveRoot(long x, long n)
 			return false;
 
 	return true;
+}
+
+/**
+ * Find all d'th roots of 1 modulo m.
+ * Currently only implemented if there exists a primitive root modulo n.
+ */
+Array!long unityRoots(long d, long m)
+{
+	auto n = phi(m);	// order of the multiplicative group (Z/mZ)*
+	auto x = primitiveRoot(m);	// generator of that group (assuming it is cyclic)
+
+	Array!long r;
+	for(long k = 0; k < gcd(d,n); ++k)
+		r.pushBack(powmod(x, n/gcd(d,n)*k, m));
+	return r;
 }
 
 /** Caclulate f(f(f(...f(x)...))) using Brent's cycle finding method */
