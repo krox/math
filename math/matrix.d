@@ -8,10 +8,11 @@ private import std.complex;
 private import std.functional : binaryFun;
 private import std.algorithm : min, max;
 private import std.random : uniform;
+private import std.format;
 
 private import jive.array;
 private import math.linear;
-private import math.complex;
+private import math.numerics;
 private import math.permutation : Permutation;
 
 template MatrixHelper(T)
@@ -25,33 +26,36 @@ template MatrixHelper(T)
 		for(size_t i = 0; i < height; ++i)
 			for(size_t j = 0; j < width; ++j)
 			{
-				strings[i,j] = to!string(this[i,j]);
+				static if(isFloatingPoint!T || isComplex!T)
+					strings[i,j] = format("%.3g", this[i,j]);
+				else
+					strings[i,j] = to!string(this[i,j]);
 				pitch[j] = max(pitch[j], strings[i,j].length);
 			}
 
 		for(size_t i = 0; i < height; ++i)
 		{
 			if(i == 0)
-				s ~= "⎛ ";
+				s ~= "⎛";
 			else if(i == height-1)
-				s ~= "⎝ ";
+				s ~= "⎝";
 			else
-				s ~= "⎜ ";
+				s ~= "⎜";
 
 
 			for(size_t j = 0; j < width; ++j)
 			{
-				s ~= strings[i,j];
 				for(int k = 0; k < pitch[j]+1-strings[i,j].length; ++k)
 					s ~= " ";
+				s ~= strings[i,j];
 			}
 
 			if(i == 0)
-				s ~= "⎞\n";
+				s ~= " ⎞\n";
 			else if(i == height-1)
-				s ~= "⎠";
+				s ~= " ⎠";
 			else
-				s ~= "⎟\n";
+				s ~= " ⎟\n";
 		}
 		return s;
 	}
@@ -70,6 +74,15 @@ template MatrixHelper(T)
 		auto r = Slice2!T(height, width);
 		foreach(i,j, ref x; r)
 			x = this[p(cast(int)i),j];
+		return r;
+	}
+
+	/** dup with row  and column permutation */
+	Slice2!T dup(Permutation p, Permutation q) const @property
+	{
+		auto r = Slice2!T(height, width);
+		foreach(i,j, ref x; r)
+			x = this[p(cast(int)i),q(cast(int)j)];
 		return r;
 	}
 
@@ -105,9 +118,14 @@ template MatrixHelper(T)
 		return Matrix!T(a.assumeUnique);
 	}
 
-	Matrix!T opBinaryRight(string op)(Permutation p) const
+	Matrix!T permute(Permutation p) const
 	{
-		return Matrix(this.dup(p).assumeUnique);
+		return Matrix!T(this.dup(p).assumeUnique);
+	}
+
+	Matrix!T permute(Permutation p, Permutation q) const
+	{
+		return Matrix!T(this.dup(p, q).assumeUnique);
 	}
 }
 
@@ -140,6 +158,7 @@ struct Matrix(T)
 		return data[i, j];
 	}
 
+	/** transposed matrix (without duplication) */
 	Matrix transpose() const
 	{
 		return Matrix(data.transpose);
@@ -197,9 +216,9 @@ struct Matrix(T)
 	}
 
 	/** compute LU decomposition */
-	DenseLU!T lu()
+	DenseLU!(T) lu()
 	{
-		return DenseLU!T(this);
+		return DenseLU!(T)(this);
 	}
 
 	/** compute QR decomposition */
@@ -213,9 +232,9 @@ struct Matrix(T)
 		return DenseHessenberg!T(this);
 	}
 
-	DenseSchur!T schur(RealTypeOf!T eps, int maxSteps = int.max)
+	DenseSchur!T schur()
 	{
-		return DenseSchur!T(this, eps, maxSteps);
+		return DenseSchur!T(this);
 	}
 
 	static Matrix!T random(size_t height, size_t width)
@@ -310,6 +329,15 @@ struct Matrix(T)
 	{
 		return buildBand!"i==j?1:0"(n, 0, 0);
 	}
+
+	/**
+	 * positive definite matrix (and thus invertible)
+	 * but with very bad condition number. Used for numerics testing.
+	 */
+	static Matrix!T buildHilbert(size_t n)
+	{
+		return build!((i,j)=>T(1)/(1+i+j))(n, n);
+	}
 }
 
 /** efficient storage of a square band matrix */
@@ -391,7 +419,7 @@ struct TriangularMatrix(T, bool lower, bool implicitOne, int offDiag = 0)
 struct DenseLU(T)
 {
 	Slice2!(immutable(T)) m;
-	Permutation p;
+	Permutation p;	// row permutation
 
 	this(Matrix!T _m)
 	{
@@ -410,14 +438,21 @@ struct DenseLU(T)
 		return Matrix!T(rhs.assumeUnique);
 	}
 
+	/** lower/left part of the decomposition */
 	auto l()
 	{
 		return TriangularMatrix!(T, true, true)(m);
 	}
 
+	/** upper/right part of the decomposition */
 	auto u()
 	{
 		return TriangularMatrix!(T, false, false)(m);
+	}
+
+	auto a()
+	{
+		return (l*u).permute(p.inverse);
 	}
 }
 
@@ -460,6 +495,11 @@ struct DenseQR(T)
 	{
 		return TriangularMatrix!(T, false, false)(m);
 	}
+
+	auto a()
+	{
+		return q*r;
+	}
 }
 
 struct DenseHessenberg(T)
@@ -494,6 +534,11 @@ struct DenseHessenberg(T)
 	{
 		return TriangularMatrix!(T, false, false, 1)(m);
 	}
+
+	auto a()
+	{
+		return q*h*q.adjoint;
+	}
 }
 
 struct DenseSchur(T)
@@ -501,14 +546,19 @@ struct DenseSchur(T)
 	Matrix!T u;
 	Matrix!T q;
 
-	this(Matrix!T _m, RealTypeOf!T eps, int maxSteps = int.max)
+	this(Matrix!T _m)
 	{
 		auto m = _m.dup;
 		auto q = Slice2!T(m.size[0], m.size[1]);
 
-		denseComputeSchur!T(m, q, eps, maxSteps);
+		denseComputeSchur!T(m, q);
 
 		this.u = Matrix!T(m.assumeUnique);
 		this.q = Matrix!T(q.assumeUnique);
+	}
+
+	auto a()
+	{
+		return q*u*q.adjoint;
 	}
 }

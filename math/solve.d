@@ -9,26 +9,7 @@ module math.solve;
 private import std.math;
 private import std.functional : unaryFun;
 private import std.algorithm;
-
-/**
- * Thrown when
- *  - method does not converge(nasty function or bad initial guess)
- *  - maximum number of steps is exhausted
- *  - input is bad (given brackets do not enclose the solution)
- */
-class NumericsException : Exception
-{
-    this(string s)
-    {
-        super(s);
-    }
-}
-
-/** retrusn true if a = b with relative error < max(eps, 4*T.eps) */
-bool approxEqual(T)(T a, T b, T eps) pure nothrow
-{
-    return abs(a-b)/min(abs(a), abs(b)) <= max(eps, 4 * T.epsilon);
-}
+private import math.numerics;
 
 int sign(T)(T x) pure nothrow
 {
