@@ -25,6 +25,7 @@ Array!(Tuple!(Polynomial!FFE,int)) factor(Polynomial!FFE f)
 		throw new Exception("can not factorize non-normalized polynomial");
 
 	auto field = f.coeffs[0].field;
+	assert(field !is null);
 
 	alias Factor = Tuple!(Polynomial!FFE,int);
 	Array!Factor sff; // square-free factors
@@ -74,7 +75,7 @@ Array!(Polynomial!FFE) factorSquareFree(Polynomial!FFE f)
 
 	for(int i = 1; f.degree > 0; ++i)
 	{
-		auto x = Polynomial!FFE([0, 1], field);
+		auto x = Polynomial!FFE([FFE(0,field), FFE(1,field)]);
 		auto g = x.powmod(Integer(field.q)^^i, f) - x;
 
 		auto fac = gcd(f, g).normalize; // g = gcd(x^q^i - x, f) = all factors of degree i in f
@@ -115,7 +116,7 @@ Array!(Polynomial!FFE) factorEqualDegree(Polynomial!FFE f, int d)
 	while(r.length < f.degree/d)
 	{
 		auto g = Polynomial!FFE.random(f.degree-1, field);
-		g = g.powmod(e, f)-Polynomial!FFE([1],field);
+		g = g.powmod(e, f)-Polynomial!FFE(1);
 		if(g.degree == 0) // early out for useless g
 			continue;
 

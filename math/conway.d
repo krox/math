@@ -7,7 +7,7 @@ module math.conway;
  */
 
 
-immutable (int)[] conwayPolynomial(long p, long n) pure
+immutable(int)[] conwayPolynomial(long p, long n) pure
 {
 	foreach(entry; list)
 		if(entry.p == p && entry.n == n)
