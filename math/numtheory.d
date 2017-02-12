@@ -1045,7 +1045,7 @@ long fibonacciMod(long n, long m) pure nothrow
  * Bernoulli numbers which are not whole numbers so I need to think about a
  * beautiful way to write that (without rounding or actual rational arithmetic)
  */
-long powerSum(long k, long n) pure nothrow
+long powerSum(long n, long k) pure nothrow
 {
 	assert(0 <= n);
 
@@ -1057,6 +1057,31 @@ long powerSum(long k, long n) pure nothrow
 		case 3: return n*n*(n+1)*(n+1)/4;
 		default: assert(false);
 	}
+}
+
+/**
+ * powerSum(n, k) % m.
+ * takes O(k^2) time, but currently only works for prime m > k.
+ */
+long powerSumMod(long n, long k, long m) pure nothrow
+{
+	long sum = 0;
+	long y = 0;
+	for(long i = 1; i <= k+1; ++i)
+	{
+		y = addmod(y, powmod(i, k, m), m);
+		long a = 1;
+		long b = 1;
+
+		for(long j = 0; j <= k+1; ++j)
+			if(j != i)
+			{
+				a = mulmod(a, submod(n%m, j, m), m);
+				b = mulmod(b, submod(i, j, m), m);
+			}
+		sum = addmod(sum, mulmod(mulmod(a, invmod(b,m), m), y, m), m);
+	}
+	return sum;
 }
 
 /**
@@ -1077,7 +1102,7 @@ long geometricMod(long a, long n, long m) pure nothrow
 	{
 		if(n % 2 == 0)
 		{
-			sum = addmod(sum, mulmod(factor, powmod(a, n, m), m), m);
+			sum = addmod(sum, mulmod(factor, powmod(a, n%m, m), m), m);
 			n--;
 		}
 
@@ -1114,10 +1139,15 @@ unittest
 			assert((fibonacci(i)%m+m)%m == fibonacciMod(i,m));
 	}
 
-	assert(powerSum(0, 5) == 1 + 1 + 1 + 1 + 1);
-	assert(powerSum(1, 5) == 1 + 2 + 3 + 4 + 5);
-	assert(powerSum(2, 5) == 1*1 + 2*2 + 3*3 + 4*4 + 5*5);
-	assert(powerSum(3, 5) == 1*1*1 + 2*2*2 + 3*3*3 + 4*4*4 + 5*5*5);
+	assert(powerSum(5, 0) == 1 + 1 + 1 + 1 + 1);
+	assert(powerSum(5, 1) == 1 + 2 + 3 + 4 + 5);
+	assert(powerSum(5, 2) == 1*1 + 2*2 + 3*3 + 4*4 + 5*5);
+	assert(powerSum(5, 3) == 1*1*1 + 2*2*2 + 3*3*3 + 4*4*4 + 5*5*5);
+
+	foreach(p; primes(5,100))
+		foreach(k; 0..4)
+			foreach(n; 1..p)
+				assert(powerSum(n,k)%p == powerSumMod(n,k,p));
 
 	for(int a = 0; a < 15; ++a)
 		for(long n = 0; n < 15; ++n)
