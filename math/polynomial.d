@@ -36,10 +36,10 @@ struct Polynomial(T, string _x = "x", alias _delta = "0")
 
 	this(int c) pure
 	{
-		this(T(c));
+		this([T(c)]);
 	}
 
-	this(immutable(T)[] coeffs...) pure
+	this(immutable(T)[] coeffs) pure
 	{
 		while(coeffs.length && coeffs[$-1] == 0)
 			coeffs = coeffs[0..$-1];
