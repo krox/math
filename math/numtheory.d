@@ -966,6 +966,32 @@ long binomialMod(long n, long k, long p)
 	return mulmod(r, invmod(s, p), p);
 }
 
+/**
+ * calculate a multinomial coefficient
+ * (∑a_i)! / ∏a_i!
+ * for maximum efficiency, put the largest a_i into a[0]
+ */
+long multinomial(const(long) a[]...)
+{
+	if(a.length == 0)
+		return 1;
+	long r = 1;
+	long k = a[0]+1;
+	assert(a[0] >= 0);
+	foreach(x; a[1..$])
+	{
+		assert(x >= 0);
+		for(long i = 1; i <= x; ++i,++k)
+		{
+			if(r > long.max/k)
+				throw new Exception("overflow in multinomial(...)");
+			r *= k;
+			r /= i;
+		}
+	}
+	return r;
+}
+
 
 /**
  *  compute the n'th fibonacci number
