@@ -1141,6 +1141,37 @@ long geometricMod(long a, long n, long m) pure nothrow
 	return addmod(sum, factor, m);
 }
 
+/**
+ * Count numbers in the range [1,n] that are multiples of one or more a[i].
+ * Implemented using inclusion-exclusion principle. Takes up to O(n) time,
+ * but may be significantly faster if the a[i] are few or big. Assumes that
+ * the a[i] are coprime, positive and in ascending order.
+ */
+long countMultiples(const(long)[] a, long n)
+{
+	assert(n >= 0);
+	assert(a.length == 0 || a[0] > 0);
+	for(size_t i = 1; i < a.length; ++i)
+		assert(a[i-1] < a[i]);
+	/*for(size_t i = 0; i < a.length; ++i)
+		for(size_t j = i+1; j < a.length; ++j)
+			assert(gcd(a[i],a[j]) == 1);*/
+
+	static long f(const(long)[] a, long n)
+	{
+		long count = n;
+		foreach(i, x; a)
+		{
+			if(x > n)
+				break;
+			count -= f(a[i+1..$], n/x);
+		}
+		return count;
+	}
+
+	return n - f(a,n);
+}
+
 unittest
 {
 	assert(factorial(0) == 1);
@@ -1189,6 +1220,8 @@ unittest
 
 			assert(x == y);
 		}
+
+	assert(countMultiples([2,3,5,7], 10000) == 7715);
 }
 
 
@@ -1471,6 +1504,19 @@ long lcm(long a, long b) pure nothrow
 		return 0;
 	else
 		return a/gcd(a,b)*b;
+}
+
+/**
+ * count numbers in the range [1,n] that are coprime to x. Generalization of
+ * Euler's totient function, implemented by explicitly factorizing x.
+ */
+long countCoprimes(long x, long n)
+{
+	static Array!long ps;
+	ps.resize(0);
+	foreach(p; factors(x))
+		ps.pushBack(p[0]);
+	return n - countMultiples(ps[], n);
 }
 
 /** determine if n is a perfect square (OEIS A000290) */
