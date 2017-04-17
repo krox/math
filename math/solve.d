@@ -1,116 +1,94 @@
 module math.solve;
 
 /**
- * solving of numerical equations f(x) = 0.
- * So far, only 1-dimensional problems.
+ * Numerically solve an equations f(x) = 0.
  * The template type of all functions is assumed to be float/double/real/Floating/...
  */
 
-private import std.math;
+private import std.math : abs, signbit, isNaN;
 private import std.functional : unaryFun;
 private import std.algorithm;
 private import math.numerics;
 
-int sign(T)(T x) pure nothrow
-{
-    if(x < 0)
-        return -1;
-    if(x > 0)
-        return 1;
-    return 0;
-}
-
-/** bisection method. fully robust but converges only linearly */
-T solveBisect(T, alias _f)(T a, T b, T eps = 4 * T.epsilon, ref int maxIter = *new int(int.max))
+/**
+ * General purpose method for solving f(x) = 0.
+ * The result will be exact to full precision of T (assuming f is smooth).
+ */
+T solve(T, alias _f)(T a, T b)
 {
     alias unaryFun!_f f;
 
-    if(maxIter < 2)
-        throw new Exception("max iterations reached without convergence");
+    if(a > b)
+        swap(a, b);
+
+    assert(!isNaN(a) && !isNaN(b));
 
     T fa = f(a);
     T fb = f(b);
-    maxIter -= 2;
-    T m, fm;
+    assert(!isNaN(fa) && !isNaN(fb));
 
-    if(sign(fa)*sign(fb) > 0)
-        throw new NumericsException("invalid bracket");
+    if(fa == 0)
+        return a;
+    if(fb == 0)
+        return b;
 
-    while(true)
-    {
-        if(approxEqual(a, b, eps))
-            return b;
+    assert(signbit(fa) != signbit(fb));
 
-        if(maxIter < 1)
-            throw new Exception("max iterations reached without convergence");
-
-        m = 0.5*(a+b);
-        fm = f(m);
-        --maxIter;
-
-        if(sign(fm) == sign(fa))
-            { a = m; fa = fm; }
-        else if(sign(fm) == sign(fb))
-            { b = m; fb = fm; }
-        else
-            return m;
-    }
-
-    return a;
+    return solveSecant!(T,_f)(a, b, fa, fb, 100); // TODO: the limit should depend on T
 }
 
-/** Dekker method combining secant and bisection. Might converge extremely slow for nasty functions */
-T solveDekker(T, alias _f)(T a, T b, T eps = 4 * T.epsilon, ref int maxIter = *new int(int.max))
+/**
+ * Secant method with fallback to bisection if necessary.
+ * conditions: a < b and f(a)*f(b) < 0
+ */
+T solveSecant(T, alias _f)(T a, T b, T fa, T fb, int maxIter)
 {
     alias unaryFun!_f f;
 
-    if(maxIter < 2)
-        throw new Exception("max iterations reached without convergence");
+    assert(a < b);
+    auto s = signbit(fa);
+    assert(signbit(fa) != signbit(fb));
 
-    /**
-    b = current best
-    b2 = previous best
-    a = contrapoint for a (maybe equal to b2)
-    **/
+    T left = a;
+    T right = b;
 
-    T fa = f(a);
-    T fb = f(b);
-    maxIter -= 2;
-
-    if(sign(fa)*sign(fb) > 0)
-        throw new NumericsException("invalid bracket");
-
-    if(abs(fa) < abs(fb)) // b should be the best guess
+    // a should be the best guess
+    if(abs(fb) < abs(fa))
     {
         swap(a, b);
         swap(fa, fb);
     }
 
-    T b2 = a;
-    T fb2 = fa;
-    T m, fm;
-
-    while(true)
+    while(maxIter --> 0)
     {
-        if(approxEqual(a, b, eps))
-            return b;
+        // choose new point c
+        T c = (b*fa - a*fb) / (fa - fb);   // secant method
+        if(!(left < c && c < right)) // outside bracket (or nan) -> fall back to bisection
+        {
+            c = ieeeMean(left, right);
+            assert(left <= c && c <= right);
+            if(c == left || c == right) // there is no further floating point number between a and b -> we are done
+                return a;
+        }
 
-        if(maxIter < 1)
-            throw new Exception("max iterations reached without convergence");
-
-        // evaluate secant method or midpoint
-        m = (b*fb2 - b2*fb) / (fb2 - fb);
-        if((m >= a && m >= b) || (m <= a && m <= b))
-            m = 0.5*(a+b);
-        fm = f(m);
-        --maxIter;
+        // evaluate f at new point
+        b = a;
+        fb = fa;
+        a = c;
+        fa = f(c);
+        assert(!isNaN(fa));
+        if(fa == 0)
+            return a;
 
         // update brackets
-        if(sign(fm)*sign(fb) < 0)
-            { a = b; fa = fb; }
-        b2 = b;
-        fb2 = fb;
-        b = m;
-        fb = fm;
+        if(signbit(fa) == s)
+            left = a;
+        else
+            right = a;
     }
+
+    // TODO: this can be avoided by falling back to bisection not only when
+    // when secant method leads outside of bracket, but also if previous step(s)
+    // have been bad.
+    throw new NumericsException;
 }

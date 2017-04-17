@@ -6,11 +6,12 @@ module math.numerics;
 
 private import std.complex;
 private import std.math;
+private import std.algorithm : min, max;
 
 /** Thrown when some method does not converge */
 class NumericsException : Exception
 {
-    this(string s)
+    this(string s = "some numerical method did not converge")
     {
         super(s);
     }
@@ -49,6 +50,48 @@ static assert(is(RealTypeOf!(Complex!float) == float));
 static assert(is(RealTypeOf!float == float));
 static assert(is(ComplexTypeOf!(Complex!float) == Complex!float));
 static assert(is(ComplexTypeOf!float == Complex!float));
+
+private ref int asInt(ref float x) pure nothrow
+{
+    return *cast(int*)&x;
+}
+
+private ref long asInt(ref double x) pure nothrow
+{
+    return *cast(long*)&x;
+}
+
+private int reverseNegative(int x) pure nothrow
+{
+    return x ^ ((x >> 31) & int.max);
+}
+
+private long reverseNegative(long x) pure nothrow
+{
+    return x ^ ((x >> 63) & long.max);
+}
+
+/**
+ * Return a number that is in the middle of x and y with respect to their
+ * floating point representation. Main use case for binary search.
+ * TODO: probably replace by std.math.ieeeMean when available.
+ */
+T ieeeMean(T)(T x, T y) pure nothrow
+{
+    if(isNaN(x) || isNaN(y))
+        return T.nan;
+
+    // in the remaining cases (including de-normalized and infinite numbers)
+    // the correct result will be obtained by re-interpreting floats as ints,
+    // though the order of negative numbers is reversed.
+
+    x.asInt = reverseNegative(x.asInt);
+    y.asInt = reverseNegative(y.asInt);
+    T z;
+    z.asInt = (x.asInt >> 1) + (y.asInt >> 1) + (x.asInt & 1);
+    z.asInt = reverseNegative(z.asInt);
+    return z;
+}
 
 /** phase factor of x. +-1 for real x, e^(i arg(x)) for complex x */
 auto phase(T)(auto ref const T x)
