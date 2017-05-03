@@ -4,7 +4,7 @@ private import std.stdio;
 private import std.range;
 private import std.functional;
 
-private import math.histogram;
+private import math.statistics;
 
 class Gnuplot
 {
