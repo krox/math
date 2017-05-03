@@ -1,6 +1,7 @@
 module math.statistics;
 
 private import std.math;
+private import std.random;
 private import std.algorithm;
 private import std.stdio;
 private import std.format;
@@ -21,12 +22,34 @@ struct Histogram
     double min = double.infinity;
     double max = -double.infinity;
 
+    /** create empty histogram */
     this(double low, double high, int nBins)
     {
         this.low = low;
         this.high = high;
         this.nBins = nBins;
         hist.resize(nBins, 0);
+    }
+
+    /** create histogram from data with automatic binning */
+    this(const(double)[] xs)
+    {
+        double a = double.infinity;
+        double b = -double.infinity;
+
+        foreach(x; xs)
+        {
+            a = std.algorithm.min(a, x);
+            b = std.algorithm.max(b, x);
+        }
+
+        a -= 0.0001*(b-a);
+        b += 0.0001*(b-a);
+
+        this(a, b, std.algorithm.min(std.algorithm.max(xs.length/10, 5), 50));
+
+        foreach(x; xs)
+            add(x);
     }
 
     void add(double x, long n = 1)
@@ -195,4 +218,106 @@ struct Var
     {
         return format("%s +- %s", mean, stddev);
     }
+}
+
+Var average(const(Var)[] xs)
+{
+    auto r = Var(0,0);
+
+    foreach(x; xs)
+    {
+        r.mean += x.mean/x.var;
+        r.var += 1/x.var;
+    }
+
+    r.mean /= r.var;
+    r.var = 1/r.var;
+    return r;
+}
+
+//////////////////////////////////////////////////////////////////////
+/// probability distributions to be used in monte-carlo algorithms
+//////////////////////////////////////////////////////////////////////
+
+/** uniform distribution in the interval [a,b) */
+struct UniformDistribution
+{
+	double a = 0;
+	double b = 1;
+
+	this(double a, double b)
+	{
+		assert(a < b);
+		this.a = a;
+		this.b = b;
+	}
+
+	double sample() const
+	{
+		return a + uniform01()*(b-a);
+	}
+
+	double weight(double x) const
+	{
+		if(x < a || x >= b)
+			return 0;
+		return 1/(b-a);
+	}
+}
+
+/** normal distribution with mean mu and deviation sigma */
+struct NormalDistribution
+{
+	double mu = 0;
+	double sigma = 1;
+	double c = 1/sqrt(2*PI);
+
+	this(double mu, double sigma)
+	{
+		assert(sigma > 0);
+		this.mu = mu;
+		this.sigma = sigma;
+		this.c = 1/sqrt(2*PI)/sigma;
+	}
+
+	double sample() const
+	{
+        double u = uniform01();
+        double v = uniform01();
+
+        //double x = std.mathspecial.normalDistributionInverse(u);  // correct, but slow (?)
+        double x = sqrt(-2*log1p(-u)) * sin(2*PI*v);
+        //double y = sqrt(-2*log1p(-u)) * cos(2*PI*v);
+
+        return mu + sigma * x;
+	}
+
+	double weight(double x) const
+	{
+		return c*exp(-(x*x)/(sigma*sigma)/2);
+	}
+}
+
+/** exponential distribution with parameter lambda */
+struct ExponentialDistribution
+{
+	double lambda = 1;
+
+	this(double lambda)
+	{
+		assert(lambda > 0);
+		this.lambda = lambda;
+	}
+
+	double sample() const
+	{
+		return -log1p(-uniform01())/lambda;
+	}
+
+	double weight(double x) const
+	{
+		if(x < 0)
+			return 0;
+		return lambda*exp(-lambda*x);
+	}
 }
