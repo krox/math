@@ -3,6 +3,7 @@ module math.statistics;
 private import std.math;
 private import std.algorithm;
 private import std.stdio;
+private import std.format;
 private import jive.array;
 private import jive.internal;
 
@@ -133,5 +134,65 @@ struct Statistics(size_t n = 1)
     double corr(size_t i = 0, size_t j = 1)() const nothrow @property @safe
     {
         return cov!(i,j) / sqrt(var!i*var!j);
+    }
+}
+
+/**
+ * A (mean, variance) tuple. Can be interpreted as a random variable,
+ * or a measurement with error. Standard arithmetic is overloaded to propagate
+ * the error term, but there are severe limitations:
+ *    -  but it assumes there is no correlation between variables,
+ * so use carefully. For example "x+x" is not the same as "2*x" (and the latter
+ * one is generally the correct one).
+ */
+struct Var
+{
+    double mean = double.nan;
+    double var = 0;
+
+    /** standard deviation sqrt(variance) */
+    double stddev() const pure nothrow @property @safe
+    {
+        return sqrt(var);
+    }
+
+    Var opBinary(string op)(double b) const pure nothrow @safe
+    {
+        switch(op)
+        {
+            case "+": return Var(mean + b, var);
+            case "-": return Var(mean - b, var);
+            case "*": return Var(mean*b, var*b*b);
+            case "/": return Var(mean/b, var/(b*b));
+            default: assert(false);
+        }
+    }
+
+    Var opBinaryRight(string op)(double a) const pure nothrow @safe
+    {
+        switch(op)
+        {
+            case "+": return Var(a + mean, var);
+            case "-": return Var(a - mean, var);
+            case "*": return Var(a * mean, a*a*var);
+            default: assert(false);
+        }
+    }
+
+    Var opBinary(string op)(Var b) const pure nothrow @safe
+    {
+        switch(op)
+        {
+            case "+": return Var(mean + b.mean, var + b.var);
+            case "-": return Var(mean - b.mean, var + b.var);
+            case "*": return Var(mean * b.mean, mean*mean*b.var + b.mean*b.mean*var + var*b.var);
+            default: assert(false);
+        }
+    }
+
+    /** returns human readable string "mean +- stddev" */
+    string toString() const @property @safe
+    {
+        return format("%s +- %s", mean, stddev);
     }
 }
