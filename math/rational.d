@@ -17,21 +17,21 @@ struct Rational
 	// gcd(num, denom) == 1
 
 	/** constructor for given value */
-	this(int v)
+	this(int v) pure nothrow
 	{
 		num = Integer(v);
 		denom = Integer(1);
 	}
 
 	/** ditto */
-	this(int n, int d)
+	this(int n, int d) pure
 	{
 		this(Integer(n), Integer(d));
 		// TODO: cancel factors before creating Integer
 	}
 
 	/** ditto */
-	this(Integer n, Integer d)
+	this(Integer n, Integer d) pure
 	{
 		if(d == 0)
 			throw new Exception("rational with denominator = 0");
@@ -51,19 +51,19 @@ struct Rational
 	}
 
 	/** ditto */
-	this(Integer v)
+	this(Integer v) pure nothrow
 	{
 		num = v;
 		denom = Integer(1);
 	}
 
 	/** ditto */
-	this(string v)
+	this(string v) pure
 	{
 		assert(false, "FIXME");
 	}
 
-	string toString() const @property
+	string toString() const pure nothrow @property
 	{
 		if(denom == 1)
 			return num.toString;
@@ -71,26 +71,26 @@ struct Rational
 			return num.toString ~ "/" ~ denom.toString;
 	}
 
-	double opCast(T)() const
+	double opCast(T)() const pure nothrow
 		if(is(T == double))
 	{
 		return cast(double)num / cast(double)denom;
 	}
 
 	/** return -1 / 0 / +1, faster than actual compare */
-	int sign() const
+	int sign() const pure nothrow
 	{
 		return num.sign;
 	}
 
-	Rational opUnary(string op)() const
+	Rational opUnary(string op)() const pure nothrow
 		if(op == "-")
 	{
 		return Rational(-num, denom);
 	}
 
 	/** returns 1/this */
-	Rational inverse() const
+	Rational inverse() const pure
 	{
 		if(num == 0)
 			throw new Exception("tried to invert rational 0");
@@ -101,7 +101,7 @@ struct Rational
 			return Rational(denom, num);
 	}
 
-	Rational opBinary(string op)(int b) const
+	Rational opBinary(string op)(int b) const pure
 	{
 		     static if(op == "+") return Rational(num + denom*b, denom);
 		else static if(op == "-") return Rational(num - denom*b, denom);
@@ -111,7 +111,7 @@ struct Rational
 		else static assert(false, "binary '"~op~"' is not defined");
 	}
 
-	Rational opBinary(string op)(Integer b) const
+	Rational opBinary(string op)(Integer b) const pure
 	{
 		     static if(op == "+") return Rational(num + denom*b, denom);
 		else static if(op == "-") return Rational(num - denom*b, denom);
@@ -121,7 +121,7 @@ struct Rational
 		else static assert(false, "binary '"~op~"' is not defined");
 	}
 
-	Rational opBinary(string op)(Rational b) const
+	Rational opBinary(string op)(Rational b) const pure
 	{
 		static if(op == "+")
 			return Rational(num*b.denom + b.num*denom, denom*b.denom);
@@ -134,7 +134,7 @@ struct Rational
 		else static assert(false, "binary '"~op~"' is not defined");
 	}
 
-	Rational opBinaryRight(string op)(int a) const
+	Rational opBinaryRight(string op)(int a) const pure
 	{
 		     static if(op == "+") return Rational(denom*a + num, denom);
 		else static if(op == "-") return Rational(denom*a - num, denom);
@@ -143,38 +143,54 @@ struct Rational
 		else static assert(false, "binary '"~op~"' is not defined");
 	}
 
-	Rational opBinaryRight(string op)(Integer a) const
+	Rational opBinaryRight(string op)(Integer a) const pure
 	{
 		     static if(op == "+") return Rational(denom*a + num, denom);
 		else static if(op == "-") return Rational(denom*a - num, denom);
 		else static if(op == "*") return Rational(a*num, denom);
 		else static if(op == "/") return Rational(a*denom, num);
 		else static assert(false, "binary '"~op~"' is not defined");
+	}
+
+	Rational opOpAssign(string op, T)(T b) pure
+	{
+		this = this.opBinary!op(b);
+		return this;
 	}
 
 	/** round to integer towards -infinity */
-	Integer floor() const
+	Integer floor() const pure
 	{
 		return num / denom;
 	}
 
-	bool opEquals(int b) const
+	bool opEquals(int b) const pure nothrow
 	{
 		return denom == 1 && num == b;
 	}
 
-	bool opEquals(Integer b) const
+	bool opEquals(Integer b) const pure nothrow
 	{
 		return denom == 1 && num == b;
 	}
 
-	bool opEquals(Rational b) const
+	bool opEquals(Rational b) const pure nothrow
 	{
 		return num == b.num && denom == b.denom; // both numbers need to be normalized for this
 	}
 
-	int opCmp(Rational b) const
+	int opCmp(Rational b) const pure nothrow
 	{
 		return (num*b.denom).opCmp(denom*b.num); // denominators need to be positive for this
+	}
+
+	int opCmp(Integer b) const pure nothrow
+	{
+		return num.opCmp(denom*b);
+	}
+
+	int opCmp(int b) const pure nothrow
+	{
+		return num.opCmp(denom*b);
 	}
 }

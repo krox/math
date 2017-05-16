@@ -5,7 +5,6 @@ private import std.conv : to;
 private import std.exception : assumeUnique;
 private import std.functional : unaryFun;
 private import core.bitop : bsr;
-private import math.integer;
 private import math.numtheory : binomial;
 
 /**
@@ -46,10 +45,20 @@ struct Polynomial(T, string _x = "x", alias _delta = "0")
 		this.coeffs = coeffs;
 	}
 
+	this(immutable(int)[] coeffs) pure
+	{
+		while(coeffs.length && coeffs[$-1] == 0)
+			coeffs = coeffs[0..$-1];
+		auto tmp = new T[coeffs.length];
+		for(int i = 0; i < coeffs.length; ++i)
+			tmp[i] = T(coeffs[i]);
+		this.coeffs = assumeUnique(tmp);
+	}
+
 	static Polynomial random(Field)(int d, Field field) @property
 	{
 		if(d < 0)
-			return Polynomial(null);
+			return Polynomial.init;
 		auto coeffs = new T[d+1];
 		for(size_t i = 0; i < coeffs.length; ++i)
 			coeffs[i] = field.random;
@@ -153,6 +162,32 @@ struct Polynomial(T, string _x = "x", alias _delta = "0")
 		return Polynomial(assumeUnique(r));
 	}
 
+	/** polynomial +- scalar */
+	Polynomial opBinary(string op, S)(S b) const pure
+		if((op == "+" || op == "-") && (is(S == T) || is(S == int)))
+	{
+		auto r = new T[max(degree, 0)+1];
+		r[0] = mixin("this[0]"~op~"b");
+		for(size_t i = 1; i < r.length; ++i)
+			r[i] = this[i];
+		return Polynomial(assumeUnique(r));
+	}
+
+	/** scalar +- polynomial */
+	Polynomial opBinaryRight(string op, S)(S b) const pure
+		if((op == "+" || op == "-") && (is(S == T) || is(S == int)))
+	{
+		auto r = new T[max(degree, 0)+1];
+		r[0] = mixin("b"~op~"this[0]");
+		for(size_t i = 1; i < r.length; ++i)
+			static if(op == "-")
+				r[i] = -this[i];
+			else
+				r[i] = this[i];
+		return Polynomial(assumeUnique(r));
+	}
+
+
 	//////////////////////////////////////////////////////////////////////
 	/// multiplicative arithmetic
 	//////////////////////////////////////////////////////////////////////
@@ -162,7 +197,7 @@ struct Polynomial(T, string _x = "x", alias _delta = "0")
 		if(op == "*" && (is(S == T) || is(S == int)))
 	{
 		if(b == 0 || degree < 0)
-			return Polynomial(null);
+			return Polynomial.init;
 		if(b == 1)
 			return this;
 
@@ -177,7 +212,7 @@ struct Polynomial(T, string _x = "x", alias _delta = "0")
 		if(op == "*" && (is(S == T) || is(S == int)))
 	{
 		if(b == 0 || degree < 0)
-			return Polynomial(null);
+			return Polynomial.init;
 		if(b == 1)
 			return this;
 
@@ -203,10 +238,18 @@ struct Polynomial(T, string _x = "x", alias _delta = "0")
 	}
 
 	/** polynomial / scalar */
-	Polynomial opBinary(string op, S)(S b) const pure
-		if(op == "/" && (is(S == T) || is(S == int)))
+	Polynomial opBinary(string op)(T b) const pure
+		if(op == "/")
 	{
 		return this*(1/b);
+	}
+
+	/** polynomial / scalar */
+	Polynomial opBinary(string op)(int b) const pure
+		if(op == "/")
+	{
+		// NOTE: need the T() in order to avoid truncated int division
+		return this/T(b);
 	}
 
 	/** polynomial * polynomial */
@@ -214,7 +257,7 @@ struct Polynomial(T, string _x = "x", alias _delta = "0")
 		if(op == "*")
 	{
 		if(degree < 0 || b.degree < 0)
-			return Polynomial(null);
+			return Polynomial.init;
 
 		auto r = new T[degree + b.degree + 1];
 		r[] = T(0);
@@ -274,7 +317,7 @@ struct Polynomial(T, string _x = "x", alias _delta = "0")
 
 			if(this.degree < b.degree)
 			{
-				quot = Polynomial(null);
+				quot = Polynomial.init;
 				rem = this;
 				return;
 			}
@@ -299,7 +342,7 @@ struct Polynomial(T, string _x = "x", alias _delta = "0")
 				throw new Exception("tried to divide by 0-polynomial");
 
 			if(this.degree < b.degree)
-				return Polynomial(null);
+				return Polynomial.init;
 
 			auto q = new T[this.degree - b.degree + 1];
 			auto r = coeffs.dup;
@@ -335,14 +378,18 @@ struct Polynomial(T, string _x = "x", alias _delta = "0")
 		}
 
 		/** formal derivative. I.e. (a*x^n)' = a*n*x^(n-1) */
-		Polynomial derivative() const @property
+		Polynomial derivative(int k = 1) const @property
 		{
-			if(degree < 1)
-				return Polynomial(null);
+			assert(k >= 0);
+			if(k == 0)
+				return this;
+			if(degree < k)
+				return Polynomial.init;
 
-			auto r = new T[degree];
-			for(int i = 1; i <= degree; ++i)
-				r[i-1] = coeffs[i]*i;
+			auto r = coeffs[k..$].dup;
+			for(int i = 0; i < r.length; ++i)
+				for(int l = i+1; l <= i+k; ++l)
+					r[i] *= l;
 
 			return Polynomial(assumeUnique(r));
 		}
@@ -354,7 +401,12 @@ struct Polynomial(T, string _x = "x", alias _delta = "0")
 			return gcd(this, this.derivative).degree == 0;
 		}
 
-		Polynomial powmod(Integer e, Polynomial mod) const @property
+		/**
+		 * compute this^e % mod.
+		 * Int is intended to be math.integer, but template avoids the explicit
+		 * import, so this module can be used without linking GMP
+		 */
+		Polynomial powmod(Int)(Int e, Polynomial mod) const @property
 		{
 			if(e < 1)
 				throw new Exception("polynomial powers < 1 not implemented yet"); // TODO
@@ -368,6 +420,26 @@ struct Polynomial(T, string _x = "x", alias _delta = "0")
 			}
 			return r;
 		}
+	}
+
+
+	//////////////////////////////////////////////////////////////////////
+	/// opOpAssign overloads
+	//////////////////////////////////////////////////////////////////////
+
+	/** polynomial ?= polynomial */
+	Polynomial opOpAssign(string op)(Polynomial b) pure
+	{
+		this = this.opBinary!op(b);
+		return this;
+	}
+
+	/** polynomial +- scalar */
+	Polynomial opOpAssign(string op, S)(S b) pure
+		if(is(S == T) || is(S == int))
+	{
+		this = this.opBinary!op(b);
+		return this;
 	}
 }
 

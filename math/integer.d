@@ -27,13 +27,13 @@ struct Integer
 
 	static enum nan = Integer.init;
 
-	this(immutable GmpInteger z)
+	this(immutable GmpInteger z) pure nothrow
 	{
 		this.z = z;
 	}
 
 	/** constructor for given value */
-	this(int v)
+	this(int v) pure nothrow
 	{
 		if(0 <= v && v < cacheSize)
 		{
@@ -47,7 +47,7 @@ struct Integer
 	}
 
 	/** ditto */
-	this(double v)
+	this(double v) pure nothrow
 	{
 		auto r = new GmpInteger;
 		__gmpz_set_d(r.ptr, v);
@@ -55,7 +55,7 @@ struct Integer
 	}
 
 	/** ditto */
-	this(string v)
+	this(string v) pure
 	{
 		// TODO: throw exception on bad strings
 		auto r = new GmpInteger;
@@ -83,7 +83,7 @@ struct Integer
 	//////////////////////////////////////////////////////////////////////
 
 	/** returns value as (decimal) string */
-	string toString() const @property
+	string toString() const pure nothrow @property
 	{
 		auto buflen = __gmpz_sizeinbase(ptr, 10)+2;	// one for sign, one for \0
 		auto buf = new char[buflen];
@@ -91,21 +91,21 @@ struct Integer
 	}
 
 	/** returns value as int, asserting it is small enough */
-	int opCast(T)() const
+	int opCast(T)() const pure
 		if(is(T == int))
 	{
 		assert(int.min <= this && this <= int.max);
 		return cast(int)__gmpz_get_si(ptr);
 	}
 
-	double opCast(T)() const
+	double opCast(T)() const pure
 		if(is(T == double))
 	{
 		return __gmpz_get_d(ptr);
 	}
 
 	/** test if bit i is set */
-	bool opIndex(size_t i) const
+	bool opIndex(size_t i) const pure nothrow
 	{
 		return __gmpz_tstbit(ptr, i) != 0;
 	}
@@ -115,39 +115,39 @@ struct Integer
 	/// size metric and comparisons
 	//////////////////////////////////////////////////////////////////////
 
-	bool isNan() const @property
+	bool isNan() const pure nothrow @property
 	{
 		return z is null;
 	}
 
-	bool opEquals(int b) const
+	bool opEquals(int b) const pure nothrow
 	{
 		return __gmpz_cmp_si(ptr, b) == 0;
 	}
 
-	bool opEquals(Integer b) const
+	bool opEquals(Integer b) const pure nothrow
 	{
 		return __gmpz_cmp(ptr, b.ptr) == 0;
 	}
 
-	int opCmp(int b) const
+	int opCmp(int b) const pure nothrow
 	{
 		return __gmpz_cmp_si(ptr, b);
 	}
 
-	int opCmp(Integer b) const
+	int opCmp(Integer b) const pure nothrow
 	{
 		return __gmpz_cmp(ptr, b.ptr);
 	}
 
 	/** returns -1 / 0 / +1, possibly faster than actual compare */
-	int sign() const @property
+	int sign() const @property pure nothrow
 	{
 		return z.z._mp_size < 0 ? -1 : z.z._mp_size > 0;
 	}
 
 	/** number of bits */
-	size_t length() const @property
+	size_t length() const pure @property
 	{
 		if(sign < 0)
 			throw new Exception("negative integer dont have a length (actually more like infinity");
@@ -161,7 +161,7 @@ struct Integer
 	/// arithmetic operations
 	//////////////////////////////////////////////////////////////////////
 
-	Integer opUnary(string op)() const
+	Integer opUnary(string op)() const pure nothrow
 		if(op == "-")
 	{
 		auto r = new GmpInteger;
@@ -169,7 +169,7 @@ struct Integer
 		return Integer(cast(immutable)r);
 	}
 
-	Integer opBinary(string op)(int b) const
+	Integer opBinary(string op)(int b) const pure
 		if(op != "%")
 	{
 		auto r = new GmpInteger;
@@ -213,7 +213,7 @@ struct Integer
 		return Integer(cast(immutable)r);
 	}
 
-	int opBinary(string op)(int b) const
+	int opBinary(string op)(int b) const pure
 		if(op == "%")
 	{
 		if(b <= 0)
@@ -222,13 +222,13 @@ struct Integer
 		return cast(int)__gmpz_fdiv_r_ui(r.ptr, ptr, b);
 	}
 
-	Integer opBinaryRight(string op)(int a) const
+	Integer opBinaryRight(string op)(int a) const pure
 		if(op == "+" || op == "*")
 	{
 		return opBinary!op(a); // commutative operators can simply be forwarded
 	}
 
-	Integer opBinaryRight(string op)(int a) const
+	Integer opBinaryRight(string op)(int a) const pure
 		if(op == "-")
 	{
 		auto r = new GmpInteger;
@@ -243,7 +243,7 @@ struct Integer
 		return Integer(cast(immutable)r);
 	}
 
-	Integer opBinary(string op)(Integer b) const
+	Integer opBinary(string op)(Integer b) const pure
 	{
 		auto r = new GmpInteger;
 
@@ -259,7 +259,7 @@ struct Integer
 	}
 
 	/** returns this/b. Faster, but only works if the division is exact (i.e. no rounding) */
-	Integer divExact(Integer b) const
+	Integer divExact(Integer b) const pure
 	{
 		auto r = new GmpInteger;
 		__gmpz_divexact(r.ptr, ptr, b.ptr);
@@ -273,7 +273,7 @@ struct Integer
 
 	Rebindable!(immutable(GmpInteger)) z;
 
-	immutable(mpz_t)* ptr() const @property
+	immutable(mpz_t)* ptr() const pure nothrow @property
 	{
 		return &z.z;
 	}
@@ -300,7 +300,7 @@ struct Integer
 /**
  * calculate modular inverse a^-1 % m
  */
-Integer inverseMod(Integer a, Integer m)
+Integer inverseMod(Integer a, Integer m) pure
 {
 	auto r = new GmpInteger;
 	__gmpz_invert(r.ptr, a.ptr, m.ptr);
@@ -310,7 +310,7 @@ Integer inverseMod(Integer a, Integer m)
 /**
  * returns true if a is a square number (this includes 0 and 1)
  */
-bool isPerfectSquare(Integer a)
+bool isPerfectSquare(Integer a) pure
 {
 	return __gmpz_perfect_square_p(a.ptr) != 0;
 }
@@ -329,7 +329,7 @@ int isPrime(Integer a)
 }
 
 /** returns floor(sqrt(a)) */
-Integer isqrt(Integer a)
+Integer isqrt(Integer a) pure
 {
 	auto r = new GmpInteger;
 	__gmpz_sqrt(r.ptr, a.ptr);
@@ -337,7 +337,7 @@ Integer isqrt(Integer a)
 }
 
 /** greatest common divisor */
-Integer gcd(Integer a, int b)
+Integer gcd(Integer a, int b) pure
 {
 	auto r = new GmpInteger;
 	if(b<0)
@@ -347,7 +347,7 @@ Integer gcd(Integer a, int b)
 }
 
 /** ditto */
-Integer gcd(Integer a, Integer b)
+Integer gcd(Integer a, Integer b) pure
 {
 	auto r = new GmpInteger;
 	__gmpz_gcd(r.ptr, a.ptr, b.ptr);
@@ -355,7 +355,7 @@ Integer gcd(Integer a, Integer b)
 }
 
 /** ditto */
-Integer gcd(Integer a, Integer b, Integer c)
+Integer gcd(Integer a, Integer b, Integer c) pure
 {
 	auto r = new GmpInteger;
 	__gmpz_gcd(r.ptr, a.ptr, b.ptr);
@@ -364,7 +364,7 @@ Integer gcd(Integer a, Integer b, Integer c)
 }
 
 /** least common multiple */
-Integer lcm(Integer a, int b)
+Integer lcm(Integer a, int b) pure
 {
 	auto r = new GmpInteger;
 	if(b<0)
@@ -374,7 +374,7 @@ Integer lcm(Integer a, int b)
 }
 
 /** ditto */
-Integer lcm(Integer a, Integer b)
+Integer lcm(Integer a, Integer b) pure
 {
 	auto r = new GmpInteger;
 	__gmpz_lcm(r.ptr, a.ptr, b.ptr);
@@ -382,7 +382,7 @@ Integer lcm(Integer a, Integer b)
 }
 
 /** ditto */
-Integer lcm(Integer a, Integer b, Integer c)
+Integer lcm(Integer a, Integer b, Integer c) pure
 {
 	auto r = new GmpInteger;
 	__gmpz_lcm(r.ptr, a.ptr, b.ptr);
@@ -391,7 +391,7 @@ Integer lcm(Integer a, Integer b, Integer c)
 }
 
 /** calculate a^e % m */
-Integer powMod(Integer a, Integer e, Integer m)
+Integer powMod(Integer a, Integer e, Integer m) pure
 {
 	auto r = new GmpInteger;
 	__gmpz_powm(r.ptr, a.ptr, e.ptr, m.ptr);
@@ -399,7 +399,7 @@ Integer powMod(Integer a, Integer e, Integer m)
 }
 
 /** ditto */
-Integer powMod(int a, Integer e, Integer m)
+Integer powMod(int a, Integer e, Integer m) pure
 {
 	auto r = new GmpInteger;
 	__gmpz_set_si(r.ptr, a);
@@ -408,7 +408,7 @@ Integer powMod(int a, Integer e, Integer m)
 }
 
 /** ditto */
-Integer powMod(Integer a, int e, Integer m)
+Integer powMod(Integer a, int e, Integer m) pure
 {
 	if(e < 0)
 		throw new Exception("TODO");
@@ -419,17 +419,17 @@ Integer powMod(Integer a, int e, Integer m)
 
 // TODO: figure out the reason for the three different routines jacobi/legendre/kronecker
 
-int legendreSymbol(Integer a, Integer b)
+int legendreSymbol(Integer a, Integer b) pure
 {
 	return __gmpz_legendre(a.ptr, b.ptr);
 }
 
-int legendreSymbol(int a, Integer b)
+int legendreSymbol(int a, Integer b) pure
 {
 	return __gmpz_si_kronecker(a, b.ptr);
 }
 
-int legendreSymbol(Integer a, int b)
+int legendreSymbol(Integer a, int b) pure
 {
 	return __gmpz_kronecker_si(a.ptr, b);
 }
@@ -439,7 +439,7 @@ int legendreSymbol(Integer a, int b)
  * Only works for p prime. For details of the algorithm, see:
  * http://en.wikipedia.org/wiki/Tonelli-Shanks_algorithm
  */
-Integer sqrtMod(Integer n, Integer p)
+Integer sqrtMod(Integer n, Integer p) pure
 {
 	n = n % p;
 
@@ -595,7 +595,7 @@ Factorization factor(Integer n)
  * returns either a proper factor of n (which is not necessarily prime),
  * or n if none was found. in the latter case try using a different value for c
  */
-Integer findFactor(Integer n, Integer x0, int c)
+Integer findFactor(Integer n, Integer x0, int c) pure
 {
 	assert(n > 0);
 	assert(0 < c && c < n);
