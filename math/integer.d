@@ -9,6 +9,7 @@ private import std.random : unpredictableSeed;
 private import std.algorithm;
 private import jive.array;
 private import math.gmp;
+private import math.numtheory;
 
 /**
  * BigInteger type using the GMP library.
@@ -326,6 +327,40 @@ int isPrime(Integer a)
 {
 	// 25 is the number of round suggested by the GMP manual. Error probability < 2^-50.
 	return __gmpz_probab_prime_p(a.ptr, 25);
+}
+
+/**
+ * checks wether 2^n-1 is a (Mersenne) prime.
+ * Implemented using Lucas-Lehmer test. A simple table would be faster (and
+ * not too big) for realistic inputs, but that's not the point here.
+ */
+bool isMersennePrime(int n) pure
+{
+	assert(n >= 0);
+	if(n == 2)
+		return true;
+	if(!math.numtheory.isPrime(n))
+		return false;
+
+	// Lucas-Lehmer only works for odd primes n
+	Integer p = Integer(2)^^n-1;
+	Integer s = 4;
+	for(int i = 0; i < n-2; ++i)
+		s = (s*s-2)%p;
+	return s == 0;
+}
+
+/**
+ * checks wether 2^2^n+1 is a (Fermat) prime.
+ * Implemented using Pepin's test. In practice, it returns
+ * true for 0 <= n <= 4, and false (or timeout) for larger inputs.
+ */
+bool isFermatPrime(int n) pure
+{
+	if(n == 0)
+		return true;
+	Integer p = Integer(2)^^(Integer(2)^^n)+1;
+	return powMod(3, (p-1)/2, p) == p-1;
 }
 
 /** returns floor(sqrt(a)) */
