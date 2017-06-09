@@ -124,14 +124,14 @@ double integrateImpl(alias fun)(double a, double b, double fa, double fb, double
 /**
  * Monte Carlo integration with fixed distribution.
  */
-Var integrateMC(alias _f, Dist)(Dist dist, int n)
+Var integrateMC(alias _f, Dist)(Dist dist, long n)
 {
     alias f = unaryFun!(_f, "x");
 
     double sum = 0;
     double sum2 = 0;
 
-    for(int i = 0; i < n; ++i)
+    for(long i = 0; i < n; ++i)
     {
         auto x = dist.sample();
         double fx = f(x)/dist.weight(x);
@@ -146,22 +146,27 @@ Var integrateMC(alias _f, Dist)(Dist dist, int n)
     return Var(sum, (sum2 - sum*sum)/(n-1));
 }
 
-Var integrateUniformMC(alias _f)(double a, double b, int n)
+Var integrateUniformMC(alias _f)(double a, double b, long n)
 {
 	return integrateMC!_f(UniformDistribution(a, b), n);
 }
 
-Var integrateNormalMC(alias _f)(double mu, double sigma, int n)
+Var integrateNormalMC(alias _f)(double mu, double sigma, long n)
 {
 	return integrateMC!_f(NormalDistribution(mu, sigma), n);
 }
 
-Var integrateExponentialMC(alias _f)(double lambda, int n)
+Var integrateExponentialMC(alias _f)(double lambda, long n)
 {
 	return integrateMC!_f(ExponentialDistribution(lambda), n);
 }
 
-Var integrateSimplexMC(alias _f, size_t d)(int n)
+Var integrateBoxMC(alias _f, size_t d)(long n)
+{
+	return integrateMC!(_f,BoxDistribution!d)(BoxDistribution!d.init, n);
+}
+
+Var integrateSimplexMC(alias _f, size_t d)(long n)
 {
 	return integrateMC!(_f,SimplexDistribution!d)(SimplexDistribution!d.init, n);
 }

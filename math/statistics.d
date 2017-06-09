@@ -266,6 +266,9 @@ struct ConstantFit
 /// probability distributions to be used in monte-carlo algorithms
 //////////////////////////////////////////////////////////////////////
 
+// TODO: restructure this into transformations, possibly without parameters
+// TODO: decide on weight-function outside support (error/undefined/zero)
+
 /** uniform distribution in the interval [a,b) */
 struct UniformDistribution
 {
@@ -346,6 +349,23 @@ struct ExponentialDistribution
 		if(x < 0)
 			return 0;
 		return lambda*exp(-lambda*x);
+	}
+}
+
+/** uniform distribution from the hypercube [0,1)^N */
+struct BoxDistribution(size_t N)
+{
+	Vec!(double, N) sample() const
+	{
+		Vec!(double, N) r;
+		for(int i = 0; i < N; ++i)
+			r[i] = uniform01();
+		return r;
+	}
+
+	double weight(Vec!(double, N) x) const
+	{
+		return 1;
 	}
 }
 

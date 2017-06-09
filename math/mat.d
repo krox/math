@@ -113,10 +113,9 @@ struct Mat(T, size_t N, size_t M)
 		return r;
 	}
 
-	Mat opOpAssign(string op)(Mat b) const pure
+	void opOpAssign(string op, S)(S b) pure
 	{
 		this = this.opBinary!op(b);
-		return this;
 	}
 }
 
