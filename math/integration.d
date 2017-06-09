@@ -122,7 +122,7 @@ double integrateImpl(alias fun)(double a, double b, double fa, double fb, double
 //////////////////////////////////////////////////////////////////////
 
 /**
- * Monte Carlo integration with importance sampling.
+ * Monte Carlo integration with fixed distribution.
  */
 Var integrateMC(alias _f, Dist)(Dist dist, int n)
 {
@@ -133,7 +133,7 @@ Var integrateMC(alias _f, Dist)(Dist dist, int n)
 
     for(int i = 0; i < n; ++i)
     {
-        double x = dist.sample();
+        auto x = dist.sample();
         double fx = f(x)/dist.weight(x);
 
         sum += fx;
@@ -143,7 +143,7 @@ Var integrateMC(alias _f, Dist)(Dist dist, int n)
     sum /= n;
     sum2 /= n;
 
-    return Var(sum, (sum2 - sum*sum)/n);
+    return Var(sum, (sum2 - sum*sum)/(n-1));
 }
 
 Var integrateUniformMC(alias _f)(double a, double b, int n)
@@ -159,4 +159,9 @@ Var integrateNormalMC(alias _f)(double mu, double sigma, int n)
 Var integrateExponentialMC(alias _f)(double lambda, int n)
 {
 	return integrateMC!_f(ExponentialDistribution(lambda), n);
+}
+
+Var integrateSimplexMC(alias _f, size_t d)(int n)
+{
+	return integrateMC!(_f,SimplexDistribution!d)(SimplexDistribution!d.init, n);
 }

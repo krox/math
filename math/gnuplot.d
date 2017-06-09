@@ -87,6 +87,27 @@ class Gnuplot
 		return plot(map!"a.x"(vs), map!"a.y"(vs), title, style);
 	}
 
+	/** plot raw data points with error */
+	void plot(RangeX, RangeY)(RangeX xs, RangeY ys, string title = null, string style = "errorbars")
+		if(isInputRange!RangeX && isInputRange!RangeY && is(ElementType!RangeX:double) && is(ElementType!RangeY:Var))
+	{
+		auto filename = "gnuplot_"~std.conv.to!string(nplots)~".txt";
+		auto f = File(filename, "w");
+
+		while(!ys.empty)
+		{
+			f.writefln("%s %s %s", xs.front, ys.front.mean, ys.front.stddev);
+			xs.popFront;
+			ys.popFront;
+		}
+		f.close();
+
+		pipe.writef("%s '%s' using 1:2:3 with %s title \"%s\"\n",
+			nplots?"replot":"plot", filename, style, title?title:"data");
+		++nplots;
+		pipe.flush();
+	}
+
 	void plot(Histogram hist, string title = null)
 	{
 		auto filename = "gnuplot_"~std.conv.to!string(nplots)~".txt";

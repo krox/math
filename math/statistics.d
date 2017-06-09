@@ -7,6 +7,7 @@ private import std.stdio;
 private import std.format;
 private import jive.array;
 private import jive.internal;
+private import math.mat;
 
 struct Histogram
 {
@@ -173,6 +174,12 @@ struct Var
     double mean = double.nan;
     double var = 0;
 
+	this(double mean, double var = 0) pure nothrow @safe
+	{
+		this.mean = mean;
+		this.var = var;
+	}
+
     /** standard deviation sqrt(variance) */
     double stddev() const pure nothrow @property @safe
     {
@@ -213,6 +220,11 @@ struct Var
         }
     }
 
+    void opOpAssign(string op, S)(S b) pure nothrow @safe
+    {
+      this = this.opBinary!op(b);
+    }
+
     /** returns human readable string "mean +- stddev" */
     string toString() const @property @safe
     {
@@ -220,19 +232,34 @@ struct Var
     }
 }
 
-Var average(const(Var)[] xs)
+struct ConstantFit
 {
-    auto r = Var(0,0);
+	Var a;
+	double chi2;	// chi^2 / ndf
 
-    foreach(x; xs)
-    {
-        r.mean += x.mean/x.var;
-        r.var += 1/x.var;
-    }
+	this(const(Var)[] xs) pure
+	{
+		// compute weighted mean
+		a = Var(0,0);
+		foreach(x; xs)
+		{
+			a.mean += x.mean/x.var;
+			a.var += 1/x.var;
+		}
+		a.mean /= a.var;
+		a.var = 1/a.var;
 
-    r.mean /= r.var;
-    r.var = 1/r.var;
-    return r;
+		// compute chi^2 test
+		chi2 = 0;
+		foreach(x; xs)
+			chi2 += (x.mean-a.mean)^^2/x.var;
+		chi2 /= xs.length-1;
+	}
+
+	string toString() const
+	{
+		return format("%s (χ²/# = %s)", a, chi2);
+	}
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -320,4 +347,33 @@ struct ExponentialDistribution
 			return 0;
 		return lambda*exp(-lambda*x);
 	}
+}
+
+/** uniform sampling from the standard N-simplex */
+struct SimplexDistribution(size_t N)
+{
+  private ExponentialDistribution exp;
+
+  Vec!(double, N) sample() const
+  {
+    Vec!(double, N) r;
+    double s = exp.sample;
+    for(int i = 0; i < N; ++i)
+    {
+      r[i] = exp.sample();
+      s += r[i];
+    }
+    for(int i = 0; i < N; ++i)
+      r[i] /= s;
+
+    return r;
+  }
+
+  double weight(Vec!(double, N) x) const
+  {
+    double r = 1;
+    for(int i = 2; i <= N; ++i)
+      r *= i;
+    return r;
+  }
 }

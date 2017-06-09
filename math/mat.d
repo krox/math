@@ -47,6 +47,16 @@ struct Mat(T, size_t N, size_t M)
 		return Slice2!(immutable(T))(N, M, flat);
 	}
 
+	static if(N == 1 || M == 1) ref inout(T) opIndex(size_t i) inout pure
+	{
+		return flat[i];
+	}
+
+	ref inout(T) opIndex(size_t i, size_t j) inout pure
+	{
+		return flat[i+N*j];
+	}
+
 	alias opSlice this;
 
 	/** Mat +- Mat */
