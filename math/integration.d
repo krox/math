@@ -5,10 +5,13 @@ module math.integration;
  * Currently only for 1-dimensional double -> double functions.
  */
 
+private import std.stdio;
 private import std.functional;
 private import std.exception;
 private import std.math;
+private import math.mat;
 private import math.statistics;
+private import math.cuba;
 
 
 //////////////////////////////////////////////////////////////////////
@@ -169,4 +172,118 @@ Var integrateBoxMC(alias _f, size_t d)(long n)
 Var integrateSimplexMC(alias _f, size_t d)(long n)
 {
 	return integrateMC!(_f,SimplexDistribution!d)(SimplexDistribution!d.init, n);
+}
+
+//////////////////////////////////////////////////////////////////////
+/// monte-carlo integration with CUBA library
+//////////////////////////////////////////////////////////////////////
+
+
+private extern(C) int cubaIntegrand(size_t d)(const(int)* ndim, const(double)* xs, const(int)* ncomp, double* ys, void* userdata)
+{
+	assert(*ndim == d);
+	assert(*ncomp == 1);
+
+	Vec!(double, d) x = *cast(Vec!(double,d)*)xs;
+	auto f = *cast(double delegate(Vec!(double,d))*)userdata;
+	ys[0] = f(x);
+	return 0;
+}
+
+private long dummy;
+
+enum Cuba
+{
+	Vegas, Suave, Divonne, Cuhre
+}
+
+/**
+ * Integrate f over [0,1]^d using the CUBA library.
+ */
+Var integrateCuba(size_t d)(double delegate(Vec!(double,d)) f, Cuba method, double epsabs = 1e-6, long maxeval = 10_000, ref long neval = dummy)
+{
+	// TODO: parameters need to be exposed for tweaking
+	
+	// general parameters
+	int ndim = cast(int)d; // dimension of x
+	int ncomp = 1; // dimension of y
+	long nvec = 1; // vectorization
+	int flags = 0; // 0-3 for verbosity
+	int seed = 0; // 0 = sobol numbers
+	long mineval = 100;
+	double epsrel = 0;
+
+	// vegas parameters
+	long nstart = 1000; // evaluations per iteration
+	long ninc = 500;
+	long nbatch = 1000;
+	int gridno = 0; // grid re-use
+
+	// suave parameters
+	long nnew = 1000;
+	long nmin = 2;
+	double flatness = 25.0;
+
+	// divonne parameters
+	int key1 = 47;
+	int key2 = 1;
+	int key3 = 1;
+	int maxpass = 5;
+	double border = 0;
+	double maxchisq = 10;
+	double mindeviation = 0.25;
+	long ngiven = 0;
+	int ldxgiven = ndim;
+	double* xgiven = null;
+	long nextra = 0;
+	peakfinder_t peakfinder = null;
+
+	// cuhre paramters
+	int key = 0;
+
+	// results
+	int fail; // 0 = accurate result, >0 = inaccurate result, <0 = error
+	double integral, error, prob;
+	int nregions;
+
+	switch(method)
+	{
+		case Cuba.Vegas:
+			llVegas(ndim, ncomp, &cubaIntegrand!d, &f, nvec, epsrel, epsabs,
+			flags, seed, mineval, maxeval,
+			nstart, ninc, nbatch, gridno,
+			null, null, &neval, &fail, &integral, &error, &prob);
+			break;
+
+		case Cuba.Suave:
+			llSuave(ndim, ncomp, &cubaIntegrand!d, &f, nvec, epsrel, epsabs,
+			flags, seed, mineval, maxeval,
+			nnew, nmin, flatness,
+			null, null, &nregions, &neval, &fail, &integral, &error, &prob);
+			break;
+
+		case Cuba.Divonne:
+			llDivonne(ndim, ncomp, &cubaIntegrand!d, &f, nvec, epsrel, epsabs,
+			flags, seed, mineval, maxeval,
+			key1, key2, key3, maxpass, border, maxchisq, mindeviation,
+			ngiven, ldxgiven, xgiven, nextra, peakfinder,
+			null, null, &nregions, &neval, &fail, &integral, &error, &prob);
+			break;
+
+		case Cuba.Cuhre:
+			llCuhre(ndim, ncomp, &cubaIntegrand!d, &f, nvec, epsrel, epsabs,
+			flags, mineval, maxeval,
+			key,
+			null, null, &nregions, &neval, &fail, &integral, &error, &prob);
+			break;
+
+		default: assert(0);
+	}
+
+	if(fail < 0)
+		throw new Exception("CUBA integration failed");
+	if(prob > 0.95)
+		stderr.writefln("WARNING: bad chi^2 probability in CUBA integration: %s", prob);
+
+	return Var(integral, error^^2);
 }
