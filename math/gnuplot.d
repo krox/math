@@ -1,6 +1,7 @@
 module math.gnuplot;
 
 private import std.stdio;
+private import std.format;
 private import std.range;
 private import std.functional;
 
@@ -63,7 +64,7 @@ class Gnuplot
 	void plot(RangeX, RangeY)(RangeX xs, RangeY ys, string title = null, string style = "linespoints")
 		if(isInputRange!RangeX && isInputRange!RangeY && is(ElementType!RangeX:double) && is(ElementType!RangeY:double))
 	{
-		auto filename = "gnuplot_"~std.conv.to!string(nplots)~".txt";
+		auto filename = format("gnuplot_%s.txt", nplots);
 		auto f = File(filename, "w");
 
 		while(!ys.empty)
@@ -91,7 +92,7 @@ class Gnuplot
 	void plot(RangeX, RangeY)(RangeX xs, RangeY ys, string title = null, string style = "errorbars")
 		if(isInputRange!RangeX && isInputRange!RangeY && is(ElementType!RangeX:double) && is(ElementType!RangeY:Var))
 	{
-		auto filename = "gnuplot_"~std.conv.to!string(nplots)~".txt";
+		auto filename = format("gnuplot_%s.txt", nplots);
 		auto f = File(filename, "w");
 
 		while(!ys.empty)
@@ -110,7 +111,7 @@ class Gnuplot
 
 	void plot(Histogram hist, string title = null)
 	{
-		auto filename = "gnuplot_"~std.conv.to!string(nplots)~".txt";
+		auto filename = format("gnuplot_%s.txt", nplots);
 		auto f = File(filename, "w");
 		foreach(x, y; hist)
 			f.writef("%s %s\n", x, y);
