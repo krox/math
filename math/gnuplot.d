@@ -171,4 +171,13 @@ class Gnuplot
 		pipe.writef("%s\n", c);
 		pipe.flush();
 	}
+
+	void writePNG(string filename)
+	{
+		pipe.writef("set term png\n");
+		pipe.writef("set output \"%s\"\n", filename);
+		pipe.writef("replot\n");
+		pipe.writef("set term x11\n");
+		pipe.flush();
+	}
 }
