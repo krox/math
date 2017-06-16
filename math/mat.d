@@ -1,10 +1,12 @@
 module math.mat;
 
-private import jive.array;
 private import std.traits;
 private import std.conv;
+private import std.math;
 private import std.complex;
 private import std.random;
+private import std.functional;
+private import jive.array;
 
 /**
  * Matrix/Vector of (small) fixed size.
@@ -17,6 +19,7 @@ struct Mat(T, size_t N, size_t M)
 	enum Mat zero = Mat(0);
 	enum Mat one = Mat(1);
 
+	/** constructor for multiple of identity matrix */
 	this(T v) pure
 	{
 		foreach(n; 0..N)
@@ -24,6 +27,14 @@ struct Mat(T, size_t N, size_t M)
 				this[n,m] = n==m ? v : T(0);
 	}
 
+	/** constructor from given data */
+	this(const(T)[] data) pure
+	{
+		assert(data.length == flat.length);
+		flat[] = data[];
+	}
+
+	/** pseudo-constructor for random matrix */
 	static Mat random()
 	{
 		Mat m;
@@ -64,7 +75,7 @@ struct Mat(T, size_t N, size_t M)
 		if(op == "+" || op == "-")
 	{
 		Mat c;
-		mixin("c.flat[] = this.flat[] "~op~" b.falt[];");
+		mixin("c.flat[] = this.flat[] "~op~" b.flat[];");
 		return c;
 	}
 
@@ -116,6 +127,39 @@ struct Mat(T, size_t N, size_t M)
 	void opOpAssign(string op, S)(S b) pure
 	{
 		this = this.opBinary!op(b);
+	}
+
+	/** apply f on each entry */
+	Mat cwise(alias f)() const
+	{
+		Mat r;
+		foreach(i; 0..N*M)
+			r.flat[i] = unaryFun!f(this.flat[i]);
+		return r;
+	}
+
+	/** sum of entries */
+	T sum() const pure
+	{
+		auto s = T(0);
+		foreach(i; 0..N*M)
+			s += this.flat[i];
+		return s;
+	}
+
+	/** 2-norm */
+	T abs() const pure
+	{
+		return sqrt(this.sqAbs);
+	}
+
+	/** square of 2-norm */
+	T sqAbs() const pure
+	{
+		T s = T(0);
+		foreach(i; 0..N*M)
+			s += this.flat[i]*this.flat[i];
+		return s;
 	}
 }
 
