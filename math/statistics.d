@@ -1,6 +1,7 @@
 module math.statistics;
 
 private import std.math;
+private import std.mathspecial;
 private import std.random;
 private import std.algorithm;
 private import std.stdio;
@@ -232,34 +233,155 @@ struct Var
     }
 }
 
+/**
+ * Estimate mean and variance of population as samples are coming in. This is
+ * the same as the standard formula "Var(x) = n/(n-1) (E(x^2) - E(x)^2)" but
+ * numerically more stable.
+ */
+struct Average
+{
+	long n = 0;
+	double m = 0; // = 1/n ∑ x_i
+	double m2 = 0; // = ∑ (x_i - m)^2
+
+	/** add a sample. NaN is silently ignored. */
+	void add(double x) pure
+	{
+		if(isNaN(x))
+			return;
+		n += 1;
+		double delta = x - m;
+		m += delta/n;
+		double delta2 = x - m;
+		m2 += delta*delta2;
+	}
+
+	/** estimate of population mean */
+	Var mean() const pure
+	{
+		if(n < 2)
+			return Var(m, double.infinity);
+		return Var(m, var/n);
+	}
+
+	/** estimate of population variance */
+	double var() const pure
+	{
+		if(n < 2)
+			return double.nan;
+		return m2/(n-1);
+	}
+}
+
+
+//////////////////////////////////////////////////////////////////////
+/// Model fitting
+//////////////////////////////////////////////////////////////////////
+
+/** fit the constant function f() = a */
 struct ConstantFit
 {
 	Var a;
-	double chi2;	// chi^2 / ndf
+	double prob;
 
-	this(const(Var)[] xs) pure
+	this(const(Var)[] ys, double exact = double.nan) pure
 	{
-		// compute weighted mean
-		a = Var(0,0);
-		foreach(x; xs)
+		long ndf;
+
+		if(isNaN(exact))
 		{
-			a.mean += x.mean/x.var;
-			a.var += 1/x.var;
+			// compute weighted mean
+			a = Var(0,0);
+			foreach(y; ys)
+			{
+				a.mean += y.mean/y.var;
+				a.var += 1/y.var;
+			}
+			a.mean /= a.var;
+			a.var = 1/a.var;
+			ndf = ys.length-1;
 		}
-		a.mean /= a.var;
-		a.var = 1/a.var;
+		else
+		{
+			a = Var(exact, 0);
+			ndf = ys.length;
+		}
 
 		// compute chi^2 test
-		chi2 = 0;
-		foreach(x; xs)
-			chi2 += (x.mean-a.mean)^^2/x.var;
-		chi2 /= xs.length-1;
+		double chi2 = 0;
+		foreach(y; ys)
+			chi2 += (y.mean-a.mean)^^2/y.var;
+		prob = chi2cdf(ndf, chi2);
 	}
 
 	string toString() const
 	{
-		return format("%s (χ²/# = %s)", a, chi2);
+		return format("%s (χ²-prob = %.2f)", a, prob);
 	}
+}
+
+/** fit a linear function f(x) = ax + b using the Theil-Sen estimator */
+struct RobustLinearFit
+{
+	double a, b;
+
+	this(const(double)[] xs, const(double)[] ys)
+	{
+		assert(xs.length == ys.length);
+
+		Array!double arr;
+
+		if(xs.length <= 20)
+		{
+			// gather all slopes in O(n^2)
+			for(size_t i = 0; i < xs.length; ++i)
+				for(size_t j = i+1; j < xs.length; ++j)
+				{
+					double slope = (ys[i]-ys[j])/(xs[i]-xs[j]);
+					if(!isNaN(slope)) // ignore case of duplicate x-coords
+						arr.pushBack(slope);
+				}
+		}
+		else
+		{
+			// gather a random sample of slopes in "O(600)"
+			for(int k = 0; k < 600; ++k)
+			{
+				size_t i = uniform(0, xs.length);
+				size_t j = uniform(0, xs.length);
+				double slope = (ys[i]-ys[j])/(xs[i]-xs[j]);
+				if(!isNaN(slope)) // ignore case of duplicate x-coords
+					arr.pushBack(slope);
+			}
+		}
+
+		if(arr.empty)
+		{
+			a = b = double.nan;
+			return;
+		}
+
+		// determine a = median of slopes
+		sort(arr[]);
+		a = arr[$/2];
+
+		// determine b = median of (y - ax)
+		arr.clear();
+		for(size_t i = 0; i < xs.length; ++i)
+			arr.pushBack(ys[i] - a*xs[i]);
+		sort(arr[]);
+		b = arr[$/2];
+	}
+}
+
+/** cumulative distribution function of chi-square distribution */
+double chi2cdf(long ndf, double chi2) pure
+{
+	if(ndf <= 0 || isNaN(chi2))
+		return double.nan;
+	if(chi2 <= 0)
+		return 0;
+	return gammaIncomplete(0.5*ndf, 0.5*chi2);
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -396,4 +518,76 @@ struct SimplexDistribution(size_t N)
       r *= i;
     return r;
   }
+}
+
+/**
+ * Generator for pseudo-random vectors in [0,1]^d distributed proportional to
+ * some function g which does not need to be normalized. The algorithm is quite
+ * efficient, but (1) initial values can be bad and (2) successive values are
+ * correlated. You can use the "burn" and "step" parameters to mitigate these
+ * problems to some degree.
+ */
+struct Metropolis
+{
+	private double[] x; // current point
+	private double[] x2; // temporary
+	private double delegate(const(double)[]) g;
+	private double gx; // = g(x)
+	private size_t step;
+
+	this() @disable;
+
+	this(double delegate(const(double)[]) g, size_t dim, size_t burn = -1, size_t step = 1)
+	{
+		if(burn == -1)
+			burn = 2*dim;
+		assert(dim >= 1);
+		assert(burn >= 0);
+		assert(step >= 1);
+
+		this.g = g;
+		this.step = step;
+		x = new double[dim];
+		x2 = new double[dim];
+
+		foreach(ref xi; x)
+			xi = uniform01();
+		gx = g(x);
+
+		for(int i = 0; i < burn; ++i)
+			next();
+	}
+
+	private void next()
+	{
+		// new proposal point
+		x2[] = x[];
+		size_t k = uniform(0, x.length);
+		x2[k] = uniform01();
+
+		// transition with some amplitude
+		double gx2 = g(x2);
+		double p = abs(gx2/gx);
+		if(p >= 1 || uniform01() < p)
+		{
+			swap(x, x2);
+			swap(gx, gx2);
+		}
+	}
+
+	double weight() const pure @property
+	{
+		return gx;
+	}
+
+	const(double)[] front() const pure @property
+	{
+		return x;
+	}
+
+	void popFront()
+	{
+		for(int i = 0; i < step; ++i)
+			next();
+	}
 }
