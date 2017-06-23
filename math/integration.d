@@ -7,9 +7,11 @@ module math.integration;
 
 private import std.stdio;
 private import std.functional;
+private import std.algorithm;
 private import std.exception;
 private import std.math;
 private import std.random;
+private import jive.array;
 private import math.statistics;
 private import math.cuba;
 
@@ -148,27 +150,21 @@ Var integrateMC(Integrand f, size_t dim, double eps, long maxEval)
 	auto x = new double[dim];
 
 	long nEval = 0;
-	double mean = 0;
-	double var = 0;
+	Average avg;
 
-	while(nEval < minEval || (nEval < maxEval && var > eps*eps*nEval*(nEval-1)))
+	while(nEval < minEval || (nEval < maxEval && avg.mean.var > eps*eps))
 	{
 		// evaluate the function at a random point
 		foreach(ref xi; x)
 			xi = uniform01();
 		double fx = f(x);
+		++nEval;
 
 		// update mean and variance
-		++nEval;
-		double delta = fx - mean;
-		mean += delta/nEval;
-		double delta2 = fx - mean;
-		var += delta*delta2;
+		avg.add(fx);
 	}
 
-	var /= nEval-1;
-
-	return Var(mean, var/nEval);
+	return avg.mean;
 }
 
 private extern(C) int cubaIntegrand(const(int)* ndim, const(double)* xs, const(int)* ncomp, double* ys, void* userdata)
@@ -275,4 +271,192 @@ Var integrateCuba(Cuba method)(Integrand f, int dim, double eps, long maxEval)
 		stderr.writefln("WARNING: bad chi^2 probability in CUBA integration: %s", prob);
 
 	return Var(integral, error^^2);
+}
+
+struct MetropolisIntegration
+{
+	// the integral to do
+	const Integrand f;
+	const size_t dim;
+
+	// parameters of method
+	private double alpha = 1; // will be dynamically adjusted
+	long burn = 0;
+	long step = 1;
+	double probArt = 0.5; // proposition-probability for real -> art
+	double trimMean = 0.0;
+
+	// result with error estimate
+	Var estimate = Var(0, double.infinity);
+
+	// current point (and a temporary proposal point)
+	bool state;
+	double[] x, x2;
+	double fx;
+
+	// statistics
+	long nEval = 0; // # of evaluations of f
+	long nReal = 0; // # of samples of real integral
+	long nArt = 0; // # of samples of artificial integral
+	long nAccept = 0; // # of accepted transitions
+	long nReject = 0; // # of rejected transitions
+	double fMin = double.infinity;
+	double fMax = -double.infinity;
+
+	/** constructor */
+	this(Integrand f, size_t dim)
+	{
+		assert(f !is null);
+		assert(dim >= 1);
+		this.f = f;
+		this.dim = dim;
+		x = new double[dim];
+		x2 = new double[dim];
+	}
+
+	private bool accept(double p)
+	{
+		if(p >= 1 || uniform01() < p)
+		{
+			++nAccept;
+			return true;
+		}
+		else
+		{
+			++nReject;
+			return false;
+		}
+	}
+
+	private double eval(const(double)[] x)
+	{
+		double fx = f(x);
+		++nEval;
+		fMin = min(fMin, fx);
+		fMax = max(fMax, fx);
+		return fx;
+	}
+
+	/** Do one step of the Markov process */
+	private void doStep()
+	{
+		if(state)
+		{
+			if(uniform01() < probArt) // real -> artificial
+			{
+				if(accept(abs(alpha/fx) / (probArt/1.0)))
+					state = false;
+			}
+			else // real -> real (gibbs sampling)
+			{
+				x2[] = x[];
+				x2[uniform(0, dim)] = uniform01();
+				double fx2 = eval(x2);
+
+				if(accept(abs(fx2/fx) / (0.5/0.5)))
+				{
+					swap(x, x2);
+					swap(fx, fx2);
+				}
+			}
+		}
+		else // artificial -> real (new uniform point)
+		{
+			foreach(ref xi; x)
+				xi = uniform01();
+			fx = eval(x);
+			if(accept(abs(fx/alpha) / (1.0/probArt)))
+				state = true;
+		}
+	}
+
+	/**
+	 * Run n steps of the Markov process.
+	 * NOTE: this can return +-infinity
+	 */
+	private double runBatch(long n)
+	{
+		state = false; // start in artificial integral
+
+		long z0 = 0; // weights of the artificial...
+		long z1 = 0; // ...and real integral
+
+		for(long i = 0; i < burn; ++i)
+			doStep();
+
+		for(long k = 0; k < n; ++k)
+		{
+			for(long i = 0; i < step; ++i)
+				doStep();
+
+			if(state)
+			{
+				z1 += sgn(fx);
+				++nReal;
+			}
+			else
+			{
+				z0 += 1;
+				++nArt;
+			}
+		}
+
+		if(z0 == 0)
+		{
+			writefln("WARNING: weight(0) = 0");;
+			return z1*double.infinity;
+		}
+
+		return alpha*z1/z0;
+	}
+
+	/** run batches until accuary or max evaluations are reached */
+	Var run(double eps, long maxEval)
+	{
+		assert(eps >= 0);
+		assert(maxEval > 0);
+
+		Array!double rs;
+		Var estimate;
+
+		long batchSize = 1000;
+
+		nEval = 0;
+		while(nEval < maxEval)
+		{
+			double r = runBatch(batchSize);
+			if(isFinite(r))
+				rs.pushBack(r);
+
+			// estimate integral and error
+			estimate = Average(rs[0..$], trimMean).mean;
+			if(estimate.stddev <= eps)
+				break;
+
+			// adjust alpha to estimated integral
+			if(isFinite(estimate.var))
+				alpha = min(2.0*alpha, max(0.5*alpha, abs(estimate.mean)));
+		}
+
+		return estimate;
+	}
+
+	void printStats() const
+	{
+		writefln("fMin = %.2s (%.2s * alpha)", fMin, fMin/alpha);
+		writefln("fMax = %.2s (%.2s * alpha)", fMax, fMax/alpha);
+		writefln("art-rate = %.3f", cast(double)nArt/(nReal+nArt));
+		writefln("acc-rate = %.3f", cast(double)nAccept/(nAccept+nReject));
+	}
+}
+
+/**
+ * Integrate f using the Metropolis-Hastings algorithm.
+ */
+Var integrateMH(Integrand f, size_t dim, double eps, long maxEval)
+{
+	auto state = MetropolisIntegration(f, dim);
+	auto r = state.run(eps, maxEval);
+	//state.printStats();
+	return r;
 }

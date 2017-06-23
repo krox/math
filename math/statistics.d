@@ -244,6 +244,26 @@ struct Average
 	double m = 0; // = 1/n ∑ x_i
 	double m2 = 0; // = ∑ (x_i - m)^2
 
+	/**
+	 * Constructor taking data points. Trimming some fraction of the data
+	 * makes it more robust, but potentially less accurate.
+	 */
+	this(const(double)[] xs, double trim = 0) pure
+	{
+		assert(0 <= trim && trim <= 1);
+		Array!double arr;
+		if(trim != 0)
+		{
+			arr = Array!double(xs[]);
+			sort(arr[]);
+			size_t cut = min(xs.length-1, cast(size_t)(trim*xs.length));
+			xs = arr[cut/2 .. $-cut/2];
+		}
+
+		foreach(x; xs)
+			add(x);
+	}
+
 	/** add a sample. NaN is silently ignored. */
 	void add(double x) pure
 	{
