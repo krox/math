@@ -342,7 +342,7 @@ Var integrateMiser(Integrand f, size_t dim, double eps, long maxEval)
 	assert(eps == 0, "MISER does not support error-based stopping");
 	auto state = MiserIntegration(f, dim);
 	auto r = state.run(maxEval);
-	state.printStats();
+	//state.printStats();
 	return r;
 }
 
@@ -452,7 +452,7 @@ Var integrateCuba(Cuba method)(Integrand f, int dim, double eps, long maxEval)
 	return Var(integral, error^^2);
 }
 
-struct MetropolisIntegration
+struct MetropolisIntegration(bool simplex = false)
 {
 	// the integral to do
 	const Integrand f;
@@ -516,6 +516,43 @@ struct MetropolisIntegration
 		return fx;
 	}
 
+	private static newPoint(double[] x)
+	{
+		static if(simplex)
+		{
+			double s = 0;
+			for(size_t i = 0; i < x.length; ++i)
+			{
+				x[i] = log(uniform01());
+				s += x[i];
+			}
+			x[] /= s;
+		}
+		else
+		{
+			for(size_t i = 0; i < x.length; ++i)
+				x[i] = uniform01();
+		}
+	}
+
+	private static changePoint(double[] x)
+	{
+		static if(simplex)
+		{
+			size_t i = uniform(0, x.length);
+			size_t j = (i+uniform(1, x.length)) % x.length;
+			double z = uniform01();
+			double s = x[i]+x[j];
+			x[i] = z*s;
+			x[j] = (1-z)*s;
+		}
+		else
+		{
+			size_t i = uniform(0,x.length);
+			x[i] = uniform01();
+		}
+	}
+
 	/** Do one step of the Markov process */
 	private void doStep()
 	{
@@ -529,7 +566,7 @@ struct MetropolisIntegration
 			else // real -> real (gibbs sampling)
 			{
 				x2[] = x[];
-				x2[uniform(0, dim)] = uniform01();
+				changePoint(x2);
 				double fx2 = eval(x2);
 
 				if(accept(abs(fx2/fx) / (0.5/0.5)))
@@ -541,8 +578,7 @@ struct MetropolisIntegration
 		}
 		else // artificial -> real (new uniform point)
 		{
-			foreach(ref xi; x)
-				xi = uniform01();
+			newPoint(x);
 			fx = eval(x);
 			if(accept(abs(fx/alpha) / (1.0/probArt)))
 				state = true;
@@ -632,9 +668,9 @@ struct MetropolisIntegration
 /**
  * Integrate f using the Metropolis-Hastings algorithm.
  */
-Var integrateMH(Integrand f, size_t dim, double eps, long maxEval)
+Var integrateMH(bool simplex = false)(Integrand f, size_t dim, double eps, long maxEval)
 {
-	auto state = MetropolisIntegration(f, dim);
+	auto state = MetropolisIntegration!simplex(f, dim);
 	auto r = state.run(eps, maxEval);
 	//state.printStats();
 	return r;
