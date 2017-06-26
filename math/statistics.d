@@ -291,6 +291,14 @@ struct Average
 			return double.nan;
 		return m2/(n-1);
 	}
+
+	/** reset everything */
+	void clear() pure
+	{
+		n = 0;
+		m = 0;
+		m2 = 0;
+	}
 }
 
 

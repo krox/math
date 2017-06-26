@@ -167,6 +167,185 @@ Var integrateMC(Integrand f, size_t dim, double eps, long maxEval)
 	return avg.mean;
 }
 
+struct MiserIntegration
+{
+	/** integral to be performed (regions defaults to [0,1]^d) */
+	Integrand f;
+	double[] left;
+	double[] right;
+
+	/** parameters of method (defaults set in constructor) */
+	double estimateFrac; // fraction of evals used on variance-estimate
+	long minEstimate; // minimum evals used for estimation
+	long minBisect; // minimum evals to perform bisection
+	long minEval; // minimum evals for any region total
+
+	/** statistics */
+	long nRegions = 0; // number of sub-regions the integration was split into
+	long[] nSplit; // number of splits per dimension
+	long nEval = 0; // total number of evals used
+	long nRealEval = 0; // number of evals used for actual integration (without variance-estimation)
+
+	/** temporary workspace */
+	private double[] x;
+	private double[] mid;
+	private Average[] estLeft;
+	private Average[] estRight;
+
+	/** constructor */
+	this(Integrand f, size_t dim)
+	{
+		assert(dim >= 1);
+		this.f = f;
+
+		// default parameters (partially taken from GSL)
+		estimateFrac = 0.1;
+		minEstimate = 16*dim;
+		minBisect = 32*dim;
+		minEval = 4*dim;
+
+		// init region to [0,1]^d
+		left = new double[dim];
+		left[] = 0;
+		right = new double[dim];
+		right[] = 1;
+
+		// allocate workspace
+		x = new double[dim];
+		mid = new double[dim];
+		estLeft = new Average[dim];
+		estRight = new Average[dim];
+		nSplit = new long[dim];
+	}
+
+	/** recursively run MISER using a total of n function evaluations */
+	Var run(long n)
+	{
+		assert(n >= minEval);
+
+		// not enough points for bisection -> run a primitive MC integration
+		if(n < minBisect)
+		{
+			nRegions += 1;
+			nEval += n;
+			nRealEval += n;
+
+			double volume = 1;
+			for(size_t i = 0; i < x.length; ++i)
+				volume *= right[i] - left[i];
+
+			Average avg;
+			for(long k = 0; k < n; ++k)
+			{
+				for(size_t i = 0; i < x.length; ++i)
+					x[i] = left[i] + uniform01() * (right[i] - left[i]);
+				avg.add(f(x));
+			}
+
+			return avg.mean * volume;
+		}
+
+		// estimate variance on each half-space
+		foreach(ref a; estLeft)
+			a.clear;
+		foreach(ref a; estRight)
+			a.clear;
+		for(size_t i = 0; i < x.length; ++i)
+			mid[i] = left[i] + 0.5 * (right[i] - left[i]); // TODO: some "dither" for symmetry-breaking?
+
+		long nEst = max(minEstimate, cast(long)(estimateFrac*n));
+		n -= nEst;
+		nEval += nEst;
+		for(long k = 0; k < nEst; ++k)
+		{
+			for(size_t i = 0; i < x.length; ++i)
+			{
+				if(i == (k/2) % x.length)
+				{
+					if(k % 2 == 0)
+						x[i] = left[i] + uniform01()*(mid[i] - left[i]); // force left
+					else
+						x[i] = mid[i] + uniform01()*(right[i] - mid[i]); // force right
+				}
+				else
+					x[i] = left[i] + uniform01()*(right[i] - left[i]);
+			}
+
+			double fx = f(x);
+
+			for(size_t i = 0; i < x.length; ++i)
+			{
+				if(x[i] < mid[i])
+					estLeft[i].add(fx);
+				else
+					estRight[i].add(fx);
+			}
+		}
+
+		// choose "best" dimension
+		double bestVar = double.infinity;
+		size_t bestDim = -1;
+		for(size_t i = 0; i < x.length; ++i)
+		{
+			if(estLeft[i].n < 2 || estRight[i].n < 2)
+				throw new Exception("Need at least 2 points for variance-estimation.");
+
+			double var = estLeft[i].var + estRight[i].var;
+			if(var < bestVar)
+			{
+				bestVar = var;
+				bestDim = i;
+			}
+		}
+		assert(0 <= bestVar && bestVar < double.infinity);
+		++nSplit[bestDim];
+
+		// determine splitting of points to the half-spaces
+		double sLeft = sqrt(estLeft[bestDim].var);
+		double sRight = sqrt(estRight[bestDim].var);
+		double leftFrac = sLeft / (sLeft + sRight);
+		long nLeft = cast(long)(leftFrac * n);
+		nLeft = max(nLeft, minEval);
+		nLeft = min(nLeft, n-minEval);
+
+		// run recursively on both half-spaces
+		// NOTE: need to restore left/right afterwards
+		double l = left[bestDim];
+		double r = right[bestDim];
+		double m = mid[bestDim];
+		left[bestDim] = l;
+		right[bestDim] = m;
+		Var intLeft = run(nLeft);
+		left[bestDim] = m;
+		right[bestDim] = r;
+		Var intRight = run(n-nLeft);
+		left[bestDim] = l;
+		right[bestDim] = r;
+
+		return intLeft + intRight;
+	}
+
+	void printStats()
+	{
+		writefln("# of regions = %s", nRegions);
+		writefln("# of splits = %s", nSplit[]);
+		writefln("# of evals = %s (%.2f real)", nEval, cast(double)nRealEval/nEval);
+	}
+}
+
+/**
+ * Integrate f over [0,1]^d using the MISER algorithm.
+ * NOTE: eps != 0 is not supported
+ */
+Var integrateMiser(Integrand f, size_t dim, double eps, long maxEval)
+{
+	assert(eps == 0, "MISER does not support error-based stopping");
+	auto state = MiserIntegration(f, dim);
+	auto r = state.run(maxEval);
+	state.printStats();
+	return r;
+}
+
 private extern(C) int cubaIntegrand(const(int)* ndim, const(double)* xs, const(int)* ncomp, double* ys, void* userdata)
 {
 	assert(*ncomp == 1);
