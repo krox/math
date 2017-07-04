@@ -138,33 +138,176 @@ alias Integrand = double delegate(const(double)[] x);
 /** some global configuration */
 private enum long minEval = 100; // never stop with fewer evaluations
 
-/**
- * Integrate f using Monte-Carlo with fixed distribution.
- */
-Var integrateMC(Integrand f, size_t dim, double eps, long maxEval)
+/** some flags */
+enum MC
 {
-	assert(dim >= 1);
-	assert(eps >= 0);
-	assert(maxEval >= minEval);
+	def = 0, // default
+	simplex = 1, // simplex insted of hypercube
+	stats = 2, // keep stats
+	stabilize = 4, // stabilization for unbounded integrands
+	anti = 8, // antithetical sampling
+}
 
-	auto x = new double[dim];
+class MonteCarloIntegration(MC flags = MC.def)
+{
+	/** the integrand to do */
+	Integrand f;
 
+	/** statistics */
 	long nEval = 0;
-	Average avg;
+	double[] xMin, xMax;
+	double fMin = double.infinity;
+	double fMax = -double.infinity;
 
-	while(nEval < minEval || (nEval < maxEval && avg.mean.var > eps*eps))
+	static if(flags & MC.anti)
 	{
-		// evaluate the function at a random point
-		foreach(ref xi; x)
-			xi = uniform01();
-		double fx = f(x);
-		++nEval;
-
-		// update mean and variance
-		avg.add(fx);
+		double[] xAnti;
+		int[] iAnti;
 	}
 
-	return avg.mean;
+	this(Integrand f, size_t dim)
+	{
+		assert(dim >= 1);
+		this.f = f;
+		xMin = new double[dim];
+		xMax = new double[dim];
+		static if(flags & MC.anti)
+		{
+			xAnti = new double[dim];
+			iAnti = new int[dim];
+			for(int i = 0; i < dim; ++i)
+				iAnti[i] = i;
+		}
+	}
+
+	/** create a new uniform random point */
+	private static void newPoint(double[] x)
+	{
+		static if(flags & MC.simplex)
+		{
+			double s = 0;
+			for(size_t i = 0; i < x.length; ++i)
+			{
+				x[i] = log(uniform01());
+				if(x[i] < -1e100)
+					x[i] = -1e100;
+				s += x[i];
+			}
+			assert(-double.infinity < s && s < 0);
+			x[] /= s;
+		}
+		else
+		{
+			for(size_t i = 0; i < x.length; ++i)
+				x[i] = uniform01();
+		}
+	}
+
+	/** evaluate f(x) */
+	private final double eval(const(double)[] x)
+	{
+		static if(flags & MC.anti)
+		{
+			import std.algorithm : nextPermutation;
+			double fx = 0;
+			int count = 0;
+			do
+			{
+				for(size_t i = 0; i < x.length; ++i)
+					xAnti[i] = x[iAnti[i]];
+				fx += f(xAnti);
+				++count;
+				++nEval;
+			}
+			while(nextPermutation(iAnti));
+			fx /= count;
+		}
+		else
+		{
+			double fx = f(x);
+			++nEval;
+		}
+		static if(flags & MC.stats)
+		{
+			if(fx < fMin)
+			{
+				fMin = fx;
+				xMin[] = x[];
+			}
+			if(fx > fMax)
+			{
+				fMax = fx;
+				xMax[] = x[];
+			}
+		}
+		return fx;
+	}
+
+	void printStats() const
+	{
+		writefln("# evals = %s", nEval);
+		writefln("fMin = %.3e at [%(%.2f %)]", fMin, xMin);
+		writefln("fMax = %.3e at [%(%.2f %)]", fMax, xMax);
+	}
+}
+
+final class UniformIntegration(MC flags = MC.def) : MonteCarloIntegration!flags
+{
+	double[] x;
+	Average avg;
+	static if(flags & MC.stabilize)
+		double bound = 0;
+
+	this(Integrand f, size_t dim)
+	{
+		super(f, dim);
+		x = new double[dim];
+	}
+
+	void run(double eps, long maxEval)
+	{
+		assert(eps >= 0);
+		assert(maxEval >= minEval);
+
+		outer: while(nEval < minEval || (nEval < maxEval && avg.mean.var > eps*eps))
+		{
+			// new point
+			newPoint(x);
+
+			// skip extreme points (very rare)
+			static if(flags & MC.stabilize)
+				foreach(xi; x)
+					if(xi < 1/(nEval+1000.0)^^2)
+						continue outer;
+
+			double fx = eval(x);
+
+			// saturate points outside bound (and adjust bound)
+			static if(flags & MC.stabilize)
+			{
+				double b = max(bound, 0.1*avg.mean.stddev*nEval);
+				if(b < double.infinity && abs(fx) > b)
+				{
+					fx = sgn(fx)*b;
+					bound = 2*b;
+				}
+			}
+
+			// update mean and variance
+			avg.add(fx);
+		}
+	}
+}
+/**
+ * Integrate f using Monte-Carlo with fixed uniform distribution.
+ */
+Var integrateMC(MC flags = MC.def)(Integrand f, size_t dim, double eps, long maxEval)
+{
+	auto state = new UniformIntegration!flags(f, dim);
+	state.run(eps, maxEval);
+	static if(flags & MC.stats)
+		state.printStats();
+	return state.avg.mean;
 }
 
 struct MiserIntegration
