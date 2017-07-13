@@ -162,6 +162,64 @@ struct Statistics(size_t n = 1)
     }
 }
 
+/** analyze autocorrelation of a single stream of data */
+struct Autocorrelation(size_t len = 20)
+{
+	private double[len] history; // previously added values
+	private long count = 0;
+	private double sum = 0;
+	private double[len] sum2 = 0;
+
+	/** add a new data point */
+	void add(double x) pure
+	{
+		sum += x;
+		history[count % len] = x;
+		for(int i = 0; i < min(count, len); ++i)
+			sum2[i] += x*history[(count - i) % len];
+		count += 1;
+	}
+
+	/** mean of data[i] */
+	double mean() const pure
+	{
+		return sum / count;
+	}
+
+	/** variance of data[i] */
+	double var() const pure
+	{
+		return cov(0);
+	}
+
+	/** covariance of data[i] and data[i-lag] */
+	double cov(int lag = 1) const pure
+	{
+		return sum2[lag]/(count-lag) - sum/count * sum/count;
+	}
+
+	/** correlation between data[i] and data[i-lag] */
+	double corr(int lag = 1) const pure
+	{
+		return cov(lag) / var();
+	}
+
+	/** print data to stdout */
+	void write(size_t maxLen = len) const
+	{
+		for(int i = 0; i < maxLen; ++i)
+			writefln("%s : %.2f", i, corr(i));
+	}
+
+	/** reset everything */
+	void clear() pure
+	{
+		count = 0;
+		sum = 0;
+		sum2[] = 0;
+	}
+}
+
 /**
  * A (mean, variance) tuple. Can be interpreted as a random variable,
  * or a measurement with error. Standard arithmetic is overloaded to propagate
@@ -226,11 +284,46 @@ struct Var
       this = this.opBinary!op(b);
     }
 
-    /** returns human readable string "mean +- stddev" */
-    string toString() const @property @safe
-    {
-        return format("%s +- %s", mean, stddev);
-    }
+	/** returns human readable string "mean(error)" */
+	void toString(scope void delegate(const(char)[]) sink, FormatSpec!char fmt) const
+	{
+		// special cases (not exhaustive actually)
+		if(isNaN(mean))
+			return sink("nan");
+		if(isNaN(var) || var == 0)
+			return formatValue(sink, mean, fmt);
+
+		// scale to scientific notation
+		double value = mean;
+		double error = stddev;
+		int e = 0;
+		if(value != 0 && (fmt.spec == 'e' || fmt.spec == 's'))
+			e = cast(int)log10(abs(value));
+		value *= 10.0^^(-e);
+		error *= 10.0^^(-e);
+
+		// determine number of digits to print
+		int prec = fmt.precision;
+		if(prec == FormatSpec!char.UNSPECIFIED)
+			prec = max(0, -cast(int)floor(log10(error))+1);
+
+		// print it
+		if(fmt.flPlus)
+			formattedWrite(sink, "%+.*f", prec, value);
+		else if(fmt.flSpace)
+			formattedWrite(sink, "% .*f", prec, value);
+		else
+			formattedWrite(sink, "%.*f", prec, value);
+		formattedWrite(sink, "(±%.*f)", prec, error);
+		if(e != 0 || fmt.spec == 'e')
+			formattedWrite(sink, "e%0+3s", e);
+	}
+
+	/** default formatting */
+	string toString() const
+	{
+		return format("%s", this);
+	}
 }
 
 /**
