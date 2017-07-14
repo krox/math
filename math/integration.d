@@ -12,6 +12,7 @@ private import std.exception;
 private import std.math;
 private import std.random;
 private import jive.array;
+private import jive.priorityqueue;
 private import math.statistics;
 private import math.cuba;
 
@@ -135,179 +136,25 @@ double integrateImpl(alias fun)(double a, double b, double fa, double fb, double
 /** propotype of function to be integrated */
 alias Integrand = double delegate(const(double)[] x);
 
-/** some global configuration */
-private enum long minEval = 100; // never stop with fewer evaluations
-
-/** some flags */
+/** flags for Monte-Carlo methods */
 enum MC
 {
-	def = 0, // default
-	simplex = 1, // simplex insted of hypercube
-	stats = 2, // keep stats
-	stabilize = 4, // stabilization for unbounded integrands
-	anti = 8, // antithetical sampling
+	none = 0, // default
+	stats = 1, // print some stats
 }
 
-class MonteCarloIntegration(MC flags = MC.def)
-{
-	/** the integrand to do */
-	Integrand f;
 
-	/** statistics */
-	long nEval = 0;
-	double[] xMin, xMax;
-	double fMin = double.infinity;
-	double fMax = -double.infinity;
-
-	static if(flags & MC.anti)
-	{
-		double[] xAnti;
-		int[] iAnti;
-	}
-
-	this(Integrand f, size_t dim)
-	{
-		assert(dim >= 1);
-		this.f = f;
-		xMin = new double[dim];
-		xMax = new double[dim];
-		static if(flags & MC.anti)
-		{
-			xAnti = new double[dim];
-			iAnti = new int[dim];
-			for(int i = 0; i < dim; ++i)
-				iAnti[i] = i;
-		}
-	}
-
-	/** create a new uniform random point */
-	private static void newPoint(double[] x)
-	{
-		static if(flags & MC.simplex)
-		{
-			double s = 0;
-			for(size_t i = 0; i < x.length; ++i)
-			{
-				x[i] = log(uniform01());
-				if(x[i] < -1e100)
-					x[i] = -1e100;
-				s += x[i];
-			}
-			assert(-double.infinity < s && s < 0);
-			x[] /= s;
-		}
-		else
-		{
-			for(size_t i = 0; i < x.length; ++i)
-				x[i] = uniform01();
-		}
-	}
-
-	/** evaluate f(x) */
-	private final double eval(const(double)[] x)
-	{
-		static if(flags & MC.anti)
-		{
-			import std.algorithm : nextPermutation;
-			double fx = 0;
-			int count = 0;
-			do
-			{
-				for(size_t i = 0; i < x.length; ++i)
-					xAnti[i] = x[iAnti[i]];
-				fx += f(xAnti);
-				++count;
-				++nEval;
-			}
-			while(nextPermutation(iAnti));
-			fx /= count;
-		}
-		else
-		{
-			double fx = f(x);
-			++nEval;
-		}
-		static if(flags & MC.stats)
-		{
-			if(fx < fMin)
-			{
-				fMin = fx;
-				xMin[] = x[];
-			}
-			if(fx > fMax)
-			{
-				fMax = fx;
-				xMax[] = x[];
-			}
-		}
-		return fx;
-	}
-
-	void printStats() const
-	{
-		writefln("# evals = %s", nEval);
-		writefln("fMin = %.3e at [%(%.2f %)]", fMin, xMin);
-		writefln("fMax = %.3e at [%(%.2f %)]", fMax, xMax);
-	}
-}
-
-final class UniformIntegration(MC flags = MC.def) : MonteCarloIntegration!flags
-{
-	double[] x;
-	Average avg;
-	static if(flags & MC.stabilize)
-		double bound = 0;
-
-	this(Integrand f, size_t dim)
-	{
-		super(f, dim);
-		x = new double[dim];
-	}
-
-	void run(double eps, long maxEval)
-	{
-		assert(eps >= 0);
-		assert(maxEval >= minEval);
-
-		outer: while(nEval < minEval || (nEval < maxEval && avg.mean.var > eps*eps))
-		{
-			// new point
-			newPoint(x);
-
-			// skip extreme points (very rare)
-			static if(flags & MC.stabilize)
-				foreach(xi; x)
-					if(xi < 1/(nEval+1000.0)^^2)
-						continue outer;
-
-			double fx = eval(x);
-
-			// saturate points outside bound (and adjust bound)
-			static if(flags & MC.stabilize)
-			{
-				double b = max(bound, 0.1*avg.mean.stddev*nEval);
-				if(b < double.infinity && abs(fx) > b)
-				{
-					fx = sgn(fx)*b;
-					bound = 2*b;
-				}
-			}
-
-			// update mean and variance
-			avg.add(fx);
-		}
-	}
-}
 /**
- * Integrate f using Monte-Carlo with fixed uniform distribution.
+ * Integrate f over using uniform Monte-Carlo sampling.
  */
-Var integrateMC(MC flags = MC.def)(Integrand f, size_t dim, double eps, long maxEval)
+Var integrateMC(Integrand f, size_t dim, long n, MC flags = MC.none)
 {
-	auto state = new UniformIntegration!flags(f, dim);
-	state.run(eps, maxEval);
-	static if(flags & MC.stats)
-		state.printStats();
-	return state.avg.mean;
+	auto a = new double[dim];
+	auto b = new double[dim];
+	a[] = 0;
+	b[] = 1;
+	auto x = new double[dim];
+	return estimate(f, a, b, n, x);
 }
 
 struct MiserIntegration
@@ -399,31 +246,7 @@ struct MiserIntegration
 		long nEst = max(minEstimate, cast(long)(estimateFrac*n));
 		n -= nEst;
 		nEval += nEst;
-		for(long k = 0; k < nEst; ++k)
-		{
-			for(size_t i = 0; i < x.length; ++i)
-			{
-				if(i == (k/2) % x.length)
-				{
-					if(k % 2 == 0)
-						x[i] = left[i] + uniform01()*(mid[i] - left[i]); // force left
-					else
-						x[i] = mid[i] + uniform01()*(right[i] - mid[i]); // force right
-				}
-				else
-					x[i] = left[i] + uniform01()*(right[i] - left[i]);
-			}
-
-			double fx = f(x);
-
-			for(size_t i = 0; i < x.length; ++i)
-			{
-				if(x[i] < mid[i])
-					estLeft[i].add(fx);
-				else
-					estRight[i].add(fx);
-			}
-		}
+		estimate(f, left, right, nEst, mid, estLeft, estRight, x);
 
 		// choose "best" dimension
 		double bestVar = double.infinity;
@@ -480,13 +303,95 @@ struct MiserIntegration
  * Integrate f over [0,1]^d using the MISER algorithm.
  * NOTE: eps != 0 is not supported
  */
-Var integrateMiser(Integrand f, size_t dim, double eps, long maxEval)
+Var integrateMiser(Integrand f, size_t dim, long n, MC flags = MC.none)
 {
-	assert(eps == 0, "MISER does not support error-based stopping");
 	auto state = MiserIntegration(f, dim);
-	auto r = state.run(maxEval);
-	//state.printStats();
+	auto r = state.run(n);
+	if(flags & MC.stats)
+		state.printStats();
 	return r;
+}
+
+/**
+ * Adaptive Monte-Carlo integration.
+ * TODO: find the name of this method in literature
+ * TODO: improve memory consumption (at least do fewer/bigger allocs)
+ * TODO: fix the error estimation
+ */
+Var integrateOrange(Integrand f, size_t dim, long n, MC flags = MC.none)
+{
+	assert(dim >= 1);
+
+	long batchSize = 32*dim; // TODO: tweak this
+
+	PriorityQueue!Region regs;
+	auto zero = new double[dim];
+	auto one = new double[dim];
+	zero[] = 0;
+	one[] = 1;
+	regs.pushBack(Region(zero, one, Var(0, double.infinity)));
+
+	auto estLeft = new Average[dim];
+	auto estRight = new Average[dim];
+	auto mid = new double[dim];
+	auto x = new double[dim];
+
+	for(long nEval = 0; nEval < n; )
+	{
+		auto r = regs.pop();
+		double vol = 1;
+		for(int i = 0; i < dim; ++i)
+		{
+			estLeft[i].clear();
+			estRight[i].clear();
+			mid[i] = 0.5*(r.a[i] + r.b[i]);
+			vol *= r.b[i] - r.a[i];
+		}
+
+		estimate(f, r.a, r.b, batchSize, mid, estLeft, estRight, x);
+		nEval += batchSize;
+
+		// choose "best" dimension
+		double bestVar = double.infinity;
+		size_t bestDim = -1;
+		double worstVar = 0;
+		size_t worstDim = -1;
+		for(size_t i = 0; i < x.length; ++i)
+		{
+			if(estLeft[i].n < 2 || estRight[i].n < 2)
+				throw new Exception("Need at least 2 points for variance-estimation.");
+
+			double var = estLeft[i].var + estRight[i].var;
+			if(var < bestVar)
+			{
+				bestVar = var;
+				bestDim = i;
+			}
+			if(var > worstVar)
+			{
+				worstVar = var;
+				worstDim = i;
+			}
+		}
+		assert(0 <= bestVar && bestVar < double.infinity);
+
+		auto m1 = new double[dim];
+		auto m2 = new double[dim];
+		m1[] = r.b[];
+		m1[bestDim] = mid[bestDim];
+
+		m2[] = r.a[];
+		m2[bestDim] = mid[bestDim];
+
+		regs.pushBack(Region(r.a, m1, 0.5*vol*estLeft[bestDim].mean));
+		regs.pushBack(Region(m2, r.b, 0.5*vol*estRight[bestDim].mean));
+	}
+
+	auto est = Var(0,0);
+	auto rs = regs.release;
+	foreach(r; rs[])
+		est += r.estimate;
+	return est;
 }
 
 private extern(C) int cubaIntegrand(const(int)* ndim, const(double)* xs, const(int)* ncomp, double* ys, void* userdata)
@@ -508,16 +413,18 @@ enum Cuba
  * Integrate f over [0,1]^d using the CUBA library.
  * NOTE: needs to be templated, so that CUBA don't need to be linked if not used
  */
-Var integrateCuba(Cuba method)(Integrand f, int dim, double eps, long maxEval)
+Var integrateCuba(Cuba method)(Integrand f, int dim, long maxEval, MC fl = MC.none)
 {
 	// TODO: parameters need to be exposed for tweaking
 
 	// general parameters
 	int ncomp = 1; // dimension of y
 	long nvec = 1; // vectorization
-	int flags = 0; // 0-3 for verbosity
+	int flags = (fl & MC.stats) ? 1 : 0; // 0-3 for verbosity
 	int seed = 0; // 0 = sobol numbers
+	double eps = 0;
 	double epsrel = 0;
+	int minEval = 100;
 
 	// vegas parameters
 	long nstart = 1000; // evaluations per iteration
@@ -749,7 +656,7 @@ struct MetropolisIntegration(bool simplex = false)
 
 			if(state)
 			{
-				z1 += sgn(fx);
+				z1 += cast(int)sgn(fx);
 				++nReal;
 			}
 			else
@@ -761,18 +668,17 @@ struct MetropolisIntegration(bool simplex = false)
 
 		if(z0 == 0)
 		{
-			writefln("WARNING: weight(0) = 0");;
+			writefln("WARNING: weight(0) = 0");
 			return z1*double.infinity;
 		}
 
 		return alpha*z1/z0;
 	}
 
-	/** run batches until accuary or max evaluations are reached */
-	Var run(double eps, long maxEval)
+	/** run batches using ~n evaluations */
+	Var run(long n)
 	{
-		assert(eps >= 0);
-		assert(maxEval > 0);
+		assert(n > 0);
 
 		Array!double rs;
 		Var estimate;
@@ -780,7 +686,7 @@ struct MetropolisIntegration(bool simplex = false)
 		long batchSize = 1000;
 
 		nEval = 0;
-		while(nEval < maxEval)
+		while(nEval < n)
 		{
 			double r = runBatch(batchSize);
 			if(isFinite(r))
@@ -788,8 +694,6 @@ struct MetropolisIntegration(bool simplex = false)
 
 			// estimate integral and error
 			estimate = Average(rs[0..$], trimMean).mean;
-			if(estimate.stddev <= eps)
-				break;
 
 			// adjust alpha to estimated integral
 			if(isFinite(estimate.var))
@@ -811,10 +715,85 @@ struct MetropolisIntegration(bool simplex = false)
 /**
  * Integrate f using the Metropolis-Hastings algorithm.
  */
-Var integrateMH(bool simplex = false)(Integrand f, size_t dim, double eps, long maxEval)
+Var integrateMH(bool simplex = false)(Integrand f, size_t dim, long n, MC flags = MC.none)
 {
 	auto state = MetropolisIntegration!simplex(f, dim);
-	auto r = state.run(eps, maxEval);
-	//state.printStats();
+	auto r = state.run(n);
+	if(flags & MC.stats)
+		state.printStats();
 	return r;
+}
+
+
+//////////////////////////////////////////////////////////////////////
+/// internal helper functions
+//////////////////////////////////////////////////////////////////////
+
+private:
+
+/**
+ * Most basic Monte-Carlo integration: Uniformly sample n point in [a,b] and
+ * compute average with error. x is used as temporary workspace.
+ */
+Var estimate(Integrand f, const(double)[] a, const(double)[] b, long n, double[] x)
+{
+	double vol = 1;
+	for(size_t i = 0; i < x.length; ++i)
+		vol *= b[i] - a[i];
+
+	Average avg;
+	for(long k = 0; k < n; ++k)
+	{
+		for(size_t i = 0; i < x.length; ++i)
+			x[i] = uniform(a[i], b[i]);
+		avg.add(f(x));
+	}
+
+	return vol * avg.mean;
+}
+
+/** Sample f at n points in [a,b] and track average for all half-spaces. */
+void estimate(Integrand f, const(double)[] a, const(double)[] b, long n, const(double)[] mid, Average[] estLeft, Average[] estRight, double[] x)
+{
+	for(long k = 0; k < n; ++k)
+	{
+		// generate a point
+		for(size_t i = 0; i < x.length; ++i)
+		{
+			if(i == (k/2) % x.length) // stratify one dimension
+			{
+				if(k % 2 == 0)
+					x[i] = a[i] + uniform01()*(mid[i] - a[i]); // force left
+				else
+					x[i] = mid[i] + uniform01()*(b[i] - mid[i]); // force right
+			}
+			else // completely uniform in other dimensions
+				x[i] = a[i] + uniform01()*(b[i] - a[i]);
+		}
+
+		// sample the point
+		double fx = f(x);
+
+		// take statistics
+		for(size_t i = 0; i < x.length; ++i)
+			if(x[i] < mid[i])
+				estLeft[i].add(fx);
+			else
+				estRight[i].add(fx);
+	}
+}
+
+struct Region
+{
+	const(double)[] a, b;
+	Var estimate = Var(0, double.infinity);
+
+	int opCmp(Region other) const pure
+	{
+		if(estimate.var < other.estimate.var)
+			return 1;
+		if(estimate.var > other.estimate.var)
+			return -1;
+		return 0;
+	}
 }
