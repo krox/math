@@ -153,7 +153,7 @@ RealTypeOf!T makeHouseholder(T)(Slice!T v)
 	T c = -phase(v[0])*sqrt(norm2!T(v));
 
 	if(c == 0)	// typically this indicate a singular matrix
-		return 0;
+		return T(0);
 		//throw new Exception("zero in householder trafo");
 
 	for(int i = 1; i < v.length; ++i)
@@ -311,7 +311,7 @@ void denseComputeSchur(T)(Slice2!T m, Slice2!T v = Slice2!T.init)
 	if(v.ptr !is null)
 		for(int j = 0; j < n; ++j)
 			for(int i = 0; i < n; ++i)
-				v[i,j] = i==j?1:0;
+				v[i,j] = i==j?T(1):T(0);
 
 	// reduce m to Hessenberg matrix
 	auto alpha = new RealTypeOf!T[n];
@@ -321,7 +321,7 @@ void denseComputeSchur(T)(Slice2!T m, Slice2!T v = Slice2!T.init)
 			applyHouseholderRight!T(v[0..$,i+1..$], m[i+2..$,i], alpha[i]);
 	for(int j = 0; j < n; ++j)
 		for(int i = j+2; i < n; ++i)
-			m[i,j] = 0;
+			m[i,j] = T(0);
 
 	// Francis algorithm
 	auto eps = 4*RealTypeOf!T.epsilon;
@@ -333,7 +333,7 @@ void denseComputeSchur(T)(Slice2!T m, Slice2!T v = Slice2!T.init)
 		for(a = b-1; a > 0; --a)
 			if(abs(m[a, a-1]) <= eps*(abs(m[a, a]) + abs(m[a-1, a-1])))
 			{
-				m[a, a-1] = 0;
+				m[a, a-1] = T(0);
 				break;
 			}
 

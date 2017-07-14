@@ -2,6 +2,8 @@ module math.numberfield;
 
 // NOTE: try not to include any GMP dependent module here
 
+import std.format;
+
 /**
  * Numbers of the form (a + b * sqrt(d)), with a, b and d a (fixed) non-square.
  * should (at least) work with T == Rational and T == IntMod
@@ -19,9 +21,9 @@ struct Quadratic(T)
 		this.d = d;
 	}
 
-	string toString() const pure nothrow @property
+	string toString() const pure @property
 	{
-		return a.toString~"+"~b.toString~"√"~d.toString;
+		return format("%s+%s√%s", a, b, d);
 	}
 
 	/** (additive) inverse) */

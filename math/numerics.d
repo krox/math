@@ -7,6 +7,8 @@ module math.numerics;
 private import std.complex;
 private import std.math;
 private import std.algorithm : min, max;
+private import std.traits;
+
 
 /** Thrown when some method does not converge */
 class NumericsException : Exception
@@ -23,11 +25,6 @@ bool approxEqual(T)(T a, T b, T eps = 4*RealTypeOf!T.epsilon) pure nothrow
     return abs(a-b) <= eps * max(abs(a), abs(b));
 }
 
-template isComplex(T)
-{
-	enum isComplex = is(T : Complex!A, A);
-}
-
 template RealTypeOf(T)
 {
 	static if(is(T : Complex!R, R))
@@ -36,20 +33,8 @@ template RealTypeOf(T)
 		alias RealTypeOf = T;
 }
 
-template ComplexTypeOf(T)
-{
-	static if(is(T : Complex!R, R))
-		alias ComplexTypeOf = T;
-	else
-		alias ComplexTypeOf = Complex!T;
-}
-
-static assert(isComplex!(Complex!real));
-static assert(!isComplex!float);
 static assert(is(RealTypeOf!(Complex!float) == float));
 static assert(is(RealTypeOf!float == float));
-static assert(is(ComplexTypeOf!(Complex!float) == Complex!float));
-static assert(is(ComplexTypeOf!float == Complex!float));
 
 private ref int asInt(ref float x) pure nothrow
 {
@@ -97,7 +82,7 @@ T ieeeMean(T)(T x, T y) pure nothrow
 auto phase(T)(auto ref const T x)
 {
 	// NOTE: result for x=0 can be arbitrary but should not be nan
-	static if(isComplex!T)
+	static if(is(T : Complex!R, R))
 	{
 		auto a = abs(x);
 		if(a == 0)
@@ -115,9 +100,21 @@ auto phase(T)(auto ref const T x)
 }
 
 T conj(T)(T x) pure nothrow
-    if(!isComplex!T)
+	if(!is(T : Complex!R, R))
 {
-    return x;
+	return x;
+}
+
+T sqAbs(T)(T x) pure nothrow
+	if(!is(T : Complex!R, R) && !isFloatingPoint!T)
+{
+	return x*x;
+}
+
+T sqrt(T)(T x) pure nothrow
+	if(!is(T : Complex!R, R) && !isFloatingPoint!T)
+{
+	return x.sqrt();
 }
 
 /**
@@ -126,7 +123,7 @@ T conj(T)(T x) pure nothrow
  * stable than getting both by the direct formula.
  */
 Complex!T polyRoot(T)(T p, T q)
-	if(!isComplex!T)
+	if(!is(T : Complex!R, R))
 {
 	auto d = p*p/4 - q;
 	if(d < 0)
@@ -140,7 +137,7 @@ Complex!T polyRoot(T)(T p, T q)
 
 /** ditto */
 T polyRoot(T)(T p, T q)
-	if(isComplex!T)
+	if(is(T : Complex!R, R))
 {
 	auto d = sqrt(p*p/4 - q);
 	if((p*std.complex.conj(d)).re < 0)

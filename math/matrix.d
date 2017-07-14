@@ -4,6 +4,7 @@ private import std.traits;
 private import std.conv : to;
 private import std.exception : assumeUnique;
 private import std.typecons;
+private import std.math;
 private import std.complex;
 private import std.functional : binaryFun;
 private import std.algorithm : min, max;
@@ -26,7 +27,7 @@ template MatrixHelper(T)
 		for(size_t i = 0; i < height; ++i)
 			for(size_t j = 0; j < width; ++j)
 			{
-				static if(isFloatingPoint!T || isComplex!T)
+				static if(isFloatingPoint!T || is(T : Complex!R, R))
 					strings[i,j] = format("%.3g", this[i,j]);
 				else
 					strings[i,j] = to!string(this[i,j]);
@@ -167,7 +168,7 @@ struct Matrix(T)
 	Matrix adjoint() const
 	{
 		auto r = this.dup.transpose;
-		static if(isComplex!T)
+		static if(is(T : Complex!R, R))
 			foreach(i, j, ref x; r)
 				x = conj(x);
 		return Matrix(r.assumeUnique);
@@ -186,7 +187,7 @@ struct Matrix(T)
 	/** return L2 norm */
 	RealTypeOf!T norm() const @property
 	{
-		return std.math.sqrt(sqNorm);
+		return sqrt(sqNorm);
 	}
 
 	Matrix!T pow(long exp)
@@ -216,23 +217,23 @@ struct Matrix(T)
 	}
 
 	/** compute LU decomposition */
-	DenseLU!(T) lu()
+	DenseLU!(T) lu()()
 	{
 		return DenseLU!(T)(this);
 	}
 
 	/** compute QR decomposition */
-	DenseQR!T qr()
+	DenseQR!T qr()()
 	{
 		return DenseQR!T(this);
 	}
 
-	DenseHessenberg!T hessenberg()
+	DenseHessenberg!T hessenberg()()
 	{
 		return DenseHessenberg!T(this);
 	}
 
-	DenseSchur!T schur()
+	DenseSchur!T schur()()
 	{
 		return DenseSchur!T(this);
 	}
@@ -241,7 +242,7 @@ struct Matrix(T)
 	{
 		static if(isFloatingPoint!T)
 			return build!((i,j)=> cast(T)uniform(-1.0, 1.0))(height, width);
-		else static if(isComplex!T)
+		else static if(is(T : Complex!R, R))
 			return build!((i,j)=> T(uniform(-1.0,1.0), uniform(-1.0,1.0)))(height, width);
 		else
 			return build!((i,j)=> T.random())(height, width);
@@ -251,7 +252,7 @@ struct Matrix(T)
 	{
 		static if(isFloatingPoint!T)
 			return buildHermitian!((i,j)=> cast(T)uniform(-1.0, 1.0))(n);
-		else static if(isComplex!T)
+		else static if(is(T : Complex!R, R))
 			return buildHermitian!((i,j)=> T(uniform(-1.0,1.0), uniform(-1.0,1.0)))(n);
 		else
 			return buildHermitian!((i,j)=> T.random())(n);
@@ -284,7 +285,7 @@ struct Matrix(T)
 			{
 				data[i,j] = binaryFun!(fun,"i","j")(i, j);
 
-				static if(isComplex!T)
+				static if(is(T : Complex!R, R))
 				{
 					if(i == j)
 						data[i,j] = 0.5*(data[i,j] + conj(data[i,j]));
@@ -325,9 +326,12 @@ struct Matrix(T)
 		return BandMatrix!T(kd, kd, data.assumeUnique);
 	}
 
-	static BandMatrix!T buildIdentity(size_t n)
+	static BandMatrix!T buildIdentity(size_t n, T x = T(1))
 	{
-		return buildBand!"i==j?1:0"(n, 0, 0);
+		auto data = Slice2!T(1, n);
+		for(size_t j = 0; j < n; ++j)
+			data[j,j] = x;
+		return BandMatrix!T(0, 0, data.assumeUnique);
 	}
 
 	/**
@@ -375,7 +379,12 @@ struct BandMatrix(T)
 		return data[i-j+ku,j];
 	}
 
-	private static T zero = 0, one = 1;
+	static const(T) zero;
+
+	static this()
+	{
+		zero = T(0);
+	}
 }
 
 /**
@@ -412,8 +421,13 @@ struct TriangularMatrix(T, bool lower, bool implicitOne, int offDiag = 0)
 		return data[i,j];
 	}
 
-	private static T zero = 0;
-	private static T one = 1;
+	static const(T) zero, one;
+
+	static this()
+	{
+		zero = T(0);
+		one = T(1);
+	}
 }
 
 struct DenseLU(T)

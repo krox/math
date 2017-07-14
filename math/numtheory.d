@@ -17,17 +17,18 @@ TODO (or decide not to, if not worth it)
 - skip even numbers in the tables of MultuplicativeFunction's. Saves half the memory and should be trivial to recompute on the fly.
 +/
 
-import jive.array;
-import jive.bitarray;
-private import std.math : log, sqrt, cbrt;
 private import core.bitop : bsf;
+private import std.math : log, sqrt, cbrt;
 private import std.typecons;
 private import std.algorithm;
 private import std.range;
 private import std.exception;
 private import std.format;
 private import std.functional : unaryFun, binaryFun;
+private import jive.array;
+private import jive.bitarray;
 private import math.numberfield : Quadratic;
+
 
 //////////////////////////////////////////////////////////////////////
 /// modular arithmetic
@@ -271,9 +272,9 @@ struct IntMod
 		return x == b.x;
 	}
 
-	string toString() const pure nothrow @property
+	string toString() const pure @property
 	{
-		return "["~to!string(x)~"]";
+		return format("[%s]", x);
 	}
 
 	byte jacobi() const pure nothrow
@@ -971,7 +972,7 @@ long binomialMod(long n, long k, long p)
  * (∑a_i)! / ∏a_i!
  * for maximum efficiency, put the largest a_i into a[0]
  */
-long multinomial(const(long) a[]...)
+long multinomial(const(long)[] a...)
 {
 	if(a.length == 0)
 		return 1;
