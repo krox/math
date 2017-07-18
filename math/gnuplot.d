@@ -28,7 +28,7 @@ class Gnuplot
 	}
 
 	/** plot a function given py a string that gnuplot can understand. Example: plot("sin(x)") */
-	void plot(string fun, string title = null)
+	void plotFunction(string fun, string title = null)
 	{
 		pipe.writef("%s %s title \"%s\"\n", nplots?"replot":"plot", fun, title?title:fun);
 		++nplots;
@@ -36,19 +36,7 @@ class Gnuplot
 	}
 
 	/** plot a function, given as a double->double function */
-	void plot(alias fun)(double a, double b, int n = 100, string title = null)
-	{
-		auto xs = new double[n];
-		auto ys = new double[n];
-		for(int i = 0; i < n; ++i)
-		{
-			xs[i] = a + (b-a)/(n-1)*i;
-			ys[i] = unaryFun!(fun,"x")(xs[i]);
-		}
-		plot(xs[], ys[], title);
-	}
-
-	void plot(double delegate(double) fun, double a, double b, int n = 100, string title = null)
+	void plotFunction(double delegate(double) fun, double a, double b, int n = 100, string title = null)
 	{
 		auto xs = new double[n];
 		auto ys = new double[n];
@@ -57,11 +45,11 @@ class Gnuplot
 			xs[i] = a + (b-a)/(n-1)*i;
 			ys[i] = fun(xs[i]);
 		}
-		plot(xs[], ys[], title);
+		plotData(xs[], ys[], title);
 	}
 
-	/** plot raw data points */
-	void plot(RangeX, RangeY)(RangeX xs, RangeY ys, string title = null, string style = "linespoints")
+	/** plot raw data points (xs[i], ys[i]) */
+	void plotData(RangeX, RangeY)(RangeX xs, RangeY ys, string title = null, string style = "linespoints")
 		if(isInputRange!RangeX && isInputRange!RangeY && is(ElementType!RangeX:double) && is(ElementType!RangeY:double))
 	{
 		auto filename = format("gnuplot_%s.txt", nplots);
@@ -81,15 +69,15 @@ class Gnuplot
 		pipe.flush();
 	}
 
-	/** ditto */
-	void plot(Range)(Range vs, string title = null, string style = "linespoints")
+	/** plot raw data points (vs[i].x, vs[i].y) */
+	void plotData(Range)(Range vs, string title = null, string style = "linespoints")
 		if(isInputRange!Range)
 	{
 		return plot(map!"a.x"(vs), map!"a.y"(vs), title, style);
 	}
 
 	/** plot raw data points with error */
-	void plot(RangeX, RangeY)(RangeX xs, RangeY ys, string title = null, string style = "errorbars")
+	void plotData(RangeX, RangeY)(RangeX xs, RangeY ys, string title = null, string style = "errorbars")
 		if(isInputRange!RangeX && isInputRange!RangeY && is(ElementType!RangeX:double) && is(ElementType!RangeY:Var))
 	{
 		auto filename = format("gnuplot_%s.txt", nplots);
@@ -109,7 +97,26 @@ class Gnuplot
 		pipe.flush();
 	}
 
-	void plot(Histogram hist, string title = null)
+	/** plot data from file */
+	void plotFile(string filename, string title = null, string style = "linespoints")
+	{
+		pipe.writef("%s '%s' using 1:2 with %s title \"%s\"\n",
+			nplots?"replot":"plot", filename, style, title?title:filename);
+		++nplots;
+		pipe.flush();
+	}
+
+	/** plot data from file with error bars */
+	void plotFileError(string filename, string title = null, string style = "errorbars")
+	{
+		pipe.writef("%s '%s' using 1:2:3 with %s title \"%s\"\n",
+			nplots?"replot":"plot", filename, style, title?title:filename);
+		++nplots;
+		pipe.flush();
+	}
+
+	/** draw a histogram */
+	void plotHistogram(Histogram hist, string title = null)
 	{
 		auto filename = format("gnuplot_%s.txt", nplots);
 		auto f = File(filename, "w");
@@ -123,42 +130,49 @@ class Gnuplot
 		nplots++;
 	}
 
+	/** set range of plot */
 	void setXRange(double min, double max)
 	{
 		pipe.writef("set xrange[%s : %s]\n", min, max);
 		pipe.flush();
 	}
 
+	/** ditto */
 	void setYRange(double min, double max)
 	{
 		pipe.writef("set yrange[%s : %s]\n", min, max);
 		pipe.flush();
 	}
 
+	/** ditto */
 	void setZRange(double min, double max)
 	{
 		pipe.writef("set zrange[%s : %s]\n", min, max);
 		pipe.flush();
 	}
 
+	/** make the plot logarithmic */
 	void setLogScaleX()
 	{
 		pipe.writef("set logscale x\n");
 		pipe.flush();
 	}
 
+	/** ditto */
 	void setLogScaleY()
 	{
 		pipe.writef("set logscale y\n");
 		pipe.flush();
 	}
 
+	/** ditto */
 	void setLogScaleZ()
 	{
 		pipe.writef("set logscale z\n");
 		pipe.flush();
 	}
 
+	/** remove all plots (but keep settings) */
 	void clear()
 	{
 		pipe.writef("clear\n");
@@ -166,12 +180,14 @@ class Gnuplot
 		nplots = 0;
 	}
 
+	/** send a command to gnuplot */
 	void cmd(string c)
 	{
 		pipe.writef("%s\n", c);
 		pipe.flush();
 	}
 
+	/** output plot to a .png image file */
 	void writePNG(string filename)
 	{
 		pipe.writef("set term png\n");
