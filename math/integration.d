@@ -316,7 +316,6 @@ Var integrateMiser(Integrand f, size_t dim, long n, MC flags = MC.none)
  * Adaptive Monte-Carlo integration.
  * TODO: find the name of this method in literature
  * TODO: improve memory consumption (at least do fewer/bigger allocs)
- * TODO: fix the error estimation
  */
 Var integrateOrange(Integrand f, size_t dim, long n, MC flags = MC.none)
 {
@@ -336,7 +335,7 @@ Var integrateOrange(Integrand f, size_t dim, long n, MC flags = MC.none)
 	auto mid = new double[dim];
 	auto x = new double[dim];
 
-	for(long nEval = 0; nEval < n; )
+	for(long nEval = 0; nEval < n/2; )
 	{
 		auto r = regs.pop();
 		double vol = 1;
@@ -351,29 +350,18 @@ Var integrateOrange(Integrand f, size_t dim, long n, MC flags = MC.none)
 		estimate(f, r.a, r.b, batchSize, mid, estLeft, estRight, x);
 		nEval += batchSize;
 
-		// choose "best" dimension
-		double bestVar = double.infinity;
+		// choose "best" dimension (i.e. largest left/right difference)
+		double bestDiff = -1;
 		size_t bestDim = -1;
-		double worstVar = 0;
-		size_t worstDim = -1;
 		for(size_t i = 0; i < x.length; ++i)
 		{
-			if(estLeft[i].n < 2 || estRight[i].n < 2)
-				throw new Exception("Need at least 2 points for variance-estimation.");
-
-			double var = estLeft[i].var + estRight[i].var;
-			if(var < bestVar)
+			double diff = abs(estLeft[i].mean.mean - estRight[i].mean.mean);
+			if(diff > bestDiff)
 			{
-				bestVar = var;
+				bestDiff = diff;
 				bestDim = i;
 			}
-			if(var > worstVar)
-			{
-				worstVar = var;
-				worstDim = i;
-			}
 		}
-		assert(0 <= bestVar && bestVar < double.infinity);
 
 		auto m1 = new double[dim];
 		auto m2 = new double[dim];
@@ -387,10 +375,12 @@ Var integrateOrange(Integrand f, size_t dim, long n, MC flags = MC.none)
 		regs.pushBack(Region(m2, r.b, 0.5*vol*estRight[bestDim].mean));
 	}
 
+	// sum up all regions. NOTE: using the known estimates yields inconsistent
+	// error estimates. Therefore we re-evaluate everything.
 	auto est = Var(0,0);
 	auto rs = regs.release;
 	foreach(r; rs[])
-		est += r.estimate;
+		est += estimate(f, r.a, r.b, batchSize, x);
 	return est;
 }
 
