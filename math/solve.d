@@ -5,7 +5,7 @@ module math.solve;
  * The template type of all functions is assumed to be float/double/real/Floating/...
  */
 
-private import std.math : abs, signbit, isNaN;
+private import std.math : abs, signbit, isNaN, nextUp, nextDown;
 private import std.functional : unaryFun;
 private import std.algorithm;
 private import math.numerics;
@@ -91,4 +91,30 @@ T solveSecant(T, alias _f)(T a, T b, T fa, T fb, int maxIter)
     // when secant method leads outside of bracket, but also if previous step(s)
     // have been bad.
     throw new NumericsException;
+}
+
+/**
+ * Newton-Raphson method. Unsafe without bracketing. Only use this if you know
+ * that the initial guess is good and the function is nice enough.
+ */
+T solveNewton(T, F, FD)(F f, FD fd, T x)
+{
+	T fx = f(x);
+
+	// NOTE: If everything is good the method converges quadratically so
+	// 10 iterations should be more than sufficient for any practical type T
+	for(int i = 0; i < 10; ++i)
+	{
+		// NOTE: either the sequence becomes consant, or it oscillates between
+		// two values. In the latter case, choose the smaller abs(f(x)).
+		T y = x - fx/fd(x);
+		if(y == x)
+			return x;
+		T fy = f(y);
+		if(abs(fy) >= abs(fx))
+			return x;
+		x = y;
+		fx = fy;
+	}
+	throw new NumericsException;
 }

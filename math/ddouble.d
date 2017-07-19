@@ -225,7 +225,7 @@ struct ddouble
 		return format("%s");
 	}
 
-	/** casts to builting types */
+	/** casts to builtin types */
 	T opCast(T)() const pure @safe nothrow
 	{
 		static if(isFloatingPoint!T)
@@ -235,6 +235,12 @@ struct ddouble
 		else static if(is(T == string))
 			return toString();
 		else static assert(false);
+	}
+
+	void opAssign(double x) pure @safe nothrow
+	{
+		hi = x;
+		lo = 0;
 	}
 
 
