@@ -9,10 +9,14 @@ private import std.math;
 private import std.format;
 private import math.solve;
 
+//////////////////////////////////////////////////////////////////////
+/// One-Dimensional integration
+//////////////////////////////////////////////////////////////////////
+
 /**
  * Gauss-Legendre quadrature using n function evaluations.
  */
-double integrate(F)(F f, double a, double b, int n)
+double integrateGL(F)(F f, double a, double b, int n)
 {
 	double mid = (a+b)/2;
 	double halfSize = (b-a)/2;
@@ -26,6 +30,73 @@ double integrate(F)(F f, double a, double b, int n)
 	return sum * halfSize;
 }
 
+//////////////////////////////////////////////////////////////////////
+/// Multidimensionl integration
+//////////////////////////////////////////////////////////////////////
+
+/**
+ * NOTE: these methods scale very badly with number of dimensions. In fact
+ * for d larger than 2 or 3, chances are good that the randomized methods
+ * in math.integration_mc are more suitable.
+ */
+
+/**
+ * Gauss-Legendre quadrature using n^d function evaluations.
+ */
+double integrateGL(F)(F f, const(double)[] a, const(double)[] b, int n)
+{
+	size_t dim = a.length;
+	assert(dim == b.length && 1 <= dim && dim <= 63);
+
+	auto mid = new double[dim];
+	mid[] = 0.5*(a[]+b[]);
+	auto halfSize = new double[dim];
+	halfSize[] = 0.5*(b[]-a[]);
+
+	auto x = new double[dim];
+	auto i = new size_t[dim];
+	i[] = 0;
+
+	auto q = legendreRoots!double(n);
+	double sum = 0;
+	while(i[$-1] < (n+1)/2)
+	{
+		// sample the function
+		double fx = 0;
+		outer: for(ulong signs = 0; signs < (1UL<<dim); ++signs)
+		{
+			for(size_t k = 0; k < dim; ++k)
+			{
+				if(signs & (1UL<<k))
+					if(i[k] == 0 && n%2==1)
+						continue outer;
+				if(signs & (1UL<<k))
+					x[k] = mid[k] + q.x[i[k]] * halfSize[k];
+				else
+					x[k] = mid[k] - q.x[i[k]] * halfSize[k];
+			}
+			fx += f(x[]);
+		}
+
+		// multiply with Legendre-weights
+		for(size_t k = 0; k < dim; ++k)
+			fx *= q.w[i[k]];
+		sum += fx;
+
+		// next point
+		i[0] += 1;
+		for(size_t k = 0; k < dim-1 && i[k] == (n+1)/2; ++k)
+		{
+			i[k] = 0;
+			i[k+1] += 1;
+		}
+	}
+
+	// normalize to integration volume
+	for(size_t k = 0; k < dim; ++k)
+		sum *= halfSize[k];
+	return sum;
+}
 
 //////////////////////////////////////////////////////////////////////
 /// Backend (orthogonal polynomials)
