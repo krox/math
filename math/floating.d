@@ -134,7 +134,7 @@ struct Floating
 private string unaryDecl(string name)
 {
 	return "auto "~name~"(A)(auto ref A a)"
-	"{ return UnaryExpr!(\""~name~"\", typeof(a.toExpr()))(a.toExpr());}";
+	~"{ return UnaryExpr!(\""~name~"\", typeof(a.toExpr()))(a.toExpr());}";
 }
 
 // rounding
@@ -205,8 +205,8 @@ mixin(unaryDecl("ai"));
 private string binaryDecl(string name)
 {
 	return "auto "~name~"(A, B)(auto ref A a, auto ref B b)"
-	"{ return BinaryExpr!(\""~name~"\", typeof(a.toExpr()), typeof(b.toExpr()))"
-	"(a.toExpr(), b.toExpr());}";
+	~"{ return BinaryExpr!(\""~name~"\", typeof(a.toExpr()), typeof(b.toExpr()))"
+	~"(a.toExpr(), b.toExpr());}";
 }
 
 mixin(binaryDecl("pow"));

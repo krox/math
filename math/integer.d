@@ -245,6 +245,7 @@ struct Integer
 	}
 
 	Integer opBinary(string op)(Integer b) const pure
+		if(op != "^^")
 	{
 		auto r = new GmpInteger;
 
@@ -257,6 +258,12 @@ struct Integer
 		else static assert(false, "binary '"~op~"' is not defined");
 
 		return Integer(cast(immutable)r);
+	}
+
+	Integer opBinary(string op)(Integer b) const pure
+		if(op == "^^")
+	{
+		return this^^cast(int)b;
 	}
 
 	/** returns this/b. Faster, but only works if the division is exact (i.e. no rounding) */

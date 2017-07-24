@@ -218,10 +218,12 @@ struct FFE
         if(op == "^^")
 	{
 		if(r == -1)
+		{
 			if(e == 0)
 				return fromExp(field, 0);	// 0^0 = 1 by convention
 			else
 				return fromExp(field, -1);	// 0^e = 0 for e != 0
+		}
 
         assert(field !is null);
 		e %= field.q-1;
@@ -241,10 +243,12 @@ struct FFE
 			return fromExp(f, r);
 
 		if(r == -1)
+		{
 			static if(op == "+")
 				return fromExp(f, b.r);   // 0 + x = x
 			else
 				return -fromExp(f, b.r);  // 0 - x = -x
+		}
 
 
         assert(f !is null);
@@ -321,7 +325,7 @@ struct FFE
 
 	bool opEquals(FFE b) const pure nothrow
 	{
-		common(this.field, b.field);
+		cast(void)common(this.field, b.field);
 		return r == b.r;
 	}
 
@@ -331,7 +335,7 @@ struct FFE
 	 */
 	int opCmp(FFE b) const pure nothrow
 	{
-		common(this.field, b.field);
+		cast(void)common(this.field, b.field);
 		return r - b.r;
 	}
 

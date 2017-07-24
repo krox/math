@@ -642,10 +642,12 @@ struct primeFactor
 
 		// already computed values
 		if(n <= currLimit)
+		{
 			if(table[n/2] == 0)
 				return n;
 			else
 				return table[n/2];
+		}
 
 		// auto extend table if n is not too large
 		if(n <= tableLimit)
@@ -1006,10 +1008,12 @@ long fibonacci(long n) pure nothrow
 	if(n == 0)
 		return 0;
 	if(n < 0)
+	{
 		if(n % 2 == 0)
 			return -fibonacci(-n);
 		else
 			return fibonacci(-n);
+	}
 
 	long a = 1, b = 0, c = 0, d = 1;
 	if (n <= 0)
@@ -1042,10 +1046,12 @@ long fibonacciMod(long n, long m) pure nothrow
 	if(n == 0)
 		return 0;
 	if(n < 0)
+	{
 		if(n % 2 == 0)
 			return negmod(fibonacciMod(-n,m), m);
 		else
 			return fibonacciMod(-n,m);
+	}
 
 	long a = 1, b = 0, c = 0, d = 1;
 	if (n <= 0)

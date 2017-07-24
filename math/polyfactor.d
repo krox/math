@@ -8,6 +8,7 @@ module math.factor;
 private import std.typecons;
 private import std.typetuple;
 private import std.algorithm;
+private import std.exception;
 
 private import jive.array;
 
