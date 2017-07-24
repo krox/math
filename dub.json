@@ -1,0 +1,11 @@
+{
+	"name": "math",
+	"description": "Various mathematical algorithms.",
+	"authors": ["Simon Bürger"],
+	"homepage": "https://github.com/Krox/math",
+	"license": "public domain",
+
+	"targetType": "sourceLibrary",
+	"sourcePaths": ["math"],
+	"dependencies": { "jive": "*" }
+}
