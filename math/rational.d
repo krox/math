@@ -63,6 +63,11 @@ struct Rational
 		assert(false, "FIXME");
 	}
 
+	static Rational random()
+	{
+		return Rational(Integer.random(100), 1+Integer.random(100));
+	}
+
 	string toString() const pure nothrow @property
 	{
 		if(denom == 1)

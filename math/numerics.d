@@ -105,18 +105,6 @@ T conj(T)(T x) pure nothrow
 	return x;
 }
 
-T sqAbs(T)(T x) pure nothrow
-	if(!is(T : Complex!R, R) && !isFloatingPoint!T)
-{
-	return x*x;
-}
-
-T sqrt(T)(T x) pure nothrow
-	if(!is(T : Complex!R, R) && !isFloatingPoint!T)
-{
-	return x.sqrt();
-}
-
 /**
  * Compute roots of x^2 + px + q. Returns the root with larger magnitude.
  * The other one should be obtained as q/root, as this is numerically more

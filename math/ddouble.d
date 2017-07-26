@@ -419,6 +419,8 @@ struct ddouble
 		return ddouble(p1, p2);
 	}
 
+	alias sqAbs = sqr;
+
 	/** square root of this */
 	ddouble sqrt() const pure @safe nothrow
 	{

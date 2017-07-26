@@ -180,14 +180,14 @@ struct Matrix(T)
 		RealTypeOf!T sum = 0;
 		for(size_t j = 0; j < width; ++j)
 			for(size_t i = 0; i < height; ++i)
-				sum += sqAbs(this[i,j]);
+				sum += this[i,j].sqAbs;
 		return sum;
 	}
 
 	/** return L2 norm */
 	RealTypeOf!T norm() const @property
 	{
-		return sqrt(sqNorm);
+		return sqNorm.sqrt;
 	}
 
 	Matrix!T pow(long exp)
@@ -340,7 +340,7 @@ struct Matrix(T)
 	 */
 	static Matrix!T buildHilbert(size_t n)
 	{
-		return build!((i,j)=>T(1)/(1+i+j))(n, n);
+		return build!((i,j)=>T(1)/(1+cast(int)i+cast(int)j))(n, n);
 	}
 }
 
