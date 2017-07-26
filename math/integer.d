@@ -8,8 +8,8 @@ private import std.exception : assumeUnique;
 private import std.random : unpredictableSeed;
 private import std.algorithm;
 private import jive.array;
-private import math.gmp;
 private import math.numtheory;
+private import bindings.gmp;
 
 /**
  * BigInteger type using the GMP library.
@@ -69,6 +69,13 @@ struct Integer
 		auto r = new GmpInteger;
 		__gmpz_urandomm(r.ptr, &rand, n.ptr);
 		return Integer(cast(immutable)r);
+	}
+
+	static Integer random(int n)
+	{
+		assert(n > 0);
+		auto x = __gmp_urandomm_ui(&rand, n);
+		return Integer(x);
 	}
 
 	static Integer randomBits(size_t b)
@@ -280,11 +287,7 @@ struct Integer
 	//////////////////////////////////////////////////////////////////////
 
 	Rebindable!(immutable(GmpInteger)) z;
-
-	immutable(mpz_t)* ptr() const pure nothrow @property
-	{
-		return &z.z;
-	}
+	alias z this;
 
 	private enum cacheSize = 10;
 
@@ -302,6 +305,31 @@ struct Integer
 
 		__gmp_randinit_default(&rand);
 		__gmp_randseed_ui(&rand, unpredictableSeed);
+	}
+}
+
+/**
+ * convenience wrapper for a (mutable) GMP integer.
+ */
+final class GmpInteger
+{
+	mpz_t z;
+
+	inout(mpz_t)* ptr() inout pure nothrow @property
+	{
+		return &z;
+	}
+
+	alias ptr this;
+
+	this() pure nothrow
+	{
+		__gmpz_init(&z);
+	}
+
+	~this() pure nothrow
+	{
+		__gmpz_clear(&z);
 	}
 }
 

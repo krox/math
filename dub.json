@@ -6,6 +6,6 @@
 	"license": "public domain",
 
 	"targetType": "sourceLibrary",
-	"sourcePaths": ["math"],
+	"sourcePaths": ["math", "bindings"],
 	"dependencies": { "jive": "*" }
 }
