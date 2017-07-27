@@ -2,7 +2,7 @@ module math.factorring;
 
 private import std.format;
 private import std.algorithm : move;
-private import math.integer;
+private import highprec.integer;
 
 struct Coset(Ring)
 {

@@ -12,7 +12,7 @@ private import std.exception;
 
 private import jive.array;
 
-import math.integer;
+import highprec.integer;
 import math.finitefield;
 import math.polynomial;
 
