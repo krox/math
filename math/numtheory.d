@@ -402,7 +402,7 @@ immutable(long)[] primes(long a, long b)
 	if(b > limit)
 	{
 		limit = max(b, 2*limit);
-		cache = assumeUnique(calculatePrimes(limit).release);
+		cache = calculatePrimes(limit)[].idup; // FIXME: duplication is stupid here
 	}
 
 	return cache[].assumeSorted.upperBound(a-1).lowerBound(b+1).release;
