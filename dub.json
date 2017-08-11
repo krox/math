@@ -8,5 +8,9 @@
 	"targetType": "sourceLibrary",
 	"sourcePaths": ["math"],
 	"importPaths": ["."],
-	"dependencies": { "jive": "*", "highprec": "*" },
+	"dependencies": {
+		"jive": "*",
+		"highprec": "*",
+		"mir-algorithm": "~>0.6.9",
+	},
 }

@@ -1,12 +1,16 @@
 module math.mat;
 
-private import std.traits;
-private import std.conv;
-private import std.math;
-private import std.complex;
-private import std.random;
-private import std.functional;
-private import jive.array;
+import std.traits;
+import std.conv;
+import std.math;
+import std.complex;
+import std.random;
+import std.functional;
+import std.format;
+import std.algorithm;
+import mir.ndslice;
+import jive.array;
+
 
 /**
  * Matrix/Vector of (small) fixed size.
@@ -43,19 +47,19 @@ struct Mat(T, size_t N, size_t M)
 		return m;
 	}
 
-	Slice2!T opSlice() pure
+	ContiguousSlice!(2, T) opSlice() pure
 	{
-		return Slice2!T(N, M, flat);
+		return flat[].sliced(N, M);
 	}
 
-	Slice2!(const(T)) opSlice() const pure
+	ContiguousSlice!(2, const(T)) opSlice() const pure
 	{
-		return Slice2!(const(T))(N, M, flat);
+		return flat[].sliced(N, M);
 	}
 
-	Slice2!(immutable(T)) opSlice() immutable pure
+	ContiguousSlice!(2, immutable(T)) opSlice() immutable pure
 	{
-		return Slice2!(immutable(T))(N, M, flat);
+		return flat[].sliced(N, M);
 	}
 
 	static if(N == 1 || M == 1) ref inout(T) opIndex(size_t i) inout pure
@@ -63,12 +67,20 @@ struct Mat(T, size_t N, size_t M)
 		return flat[i];
 	}
 
-	ref inout(T) opIndex(size_t i, size_t j) inout pure
+	ref T opIndex(size_t i, size_t j) pure
 	{
-		return flat[i+N*j];
+		return opSlice()[i, j];
 	}
 
-	alias opSlice this;
+	ref const(T) opIndex(size_t i, size_t j) const pure
+	{
+		return opSlice()[i, j];
+	}
+
+	ref immutable(T) opIndex(size_t i, size_t j) immutable pure
+	{
+		return opSlice()[i, j];
+	}
 
 	/** Mat +- Mat */
 	Mat opBinary(string op)(Mat b) const pure
@@ -159,6 +171,51 @@ struct Mat(T, size_t N, size_t M)
 		T s = T(0);
 		foreach(i; 0..N*M)
 			s += this.flat[i]*this.flat[i];
+		return s;
+	}
+
+	/** pretty printing */
+	string toString() const @property
+	{
+		string s;
+		auto strings = slice!string(N, M);
+		auto pitch = Array!size_t(M, 0);
+
+		for(size_t i = 0; i < N; ++i)
+			for(size_t j = 0; j < M; ++j)
+			{
+				import std.complex;
+				static if(isFloatingPoint!T || is(T : Complex!R, R))
+					strings[i,j] = format("%.3g", this[i,j]);
+				else
+					strings[i,j] = to!string(this[i,j]);
+				pitch[j] = max(pitch[j], strings[i,j].length);
+			}
+
+		for(size_t i = 0; i < N; ++i)
+		{
+			if(i == 0)
+				s ~= "⎛";
+			else if(i == N-1)
+				s ~= "⎝";
+			else
+				s ~= "⎜";
+
+
+			for(size_t j = 0; j < M; ++j)
+			{
+				for(int k = 0; k < pitch[j]+1-strings[i,j].length; ++k)
+					s ~= " ";
+				s ~= strings[i,j];
+			}
+
+			if(i == 0)
+				s ~= " ⎞\n";
+			else if(i == N-1)
+				s ~= " ⎠";
+			else
+				s ~= " ⎟\n";
+		}
 		return s;
 	}
 }
@@ -269,3 +326,13 @@ alias dvec4 = Vec4!double;
 alias dmat2 = Mat2!double;
 alias dmat3 = Mat3!double;
 alias dmat4 = Mat4!double;
+
+pure @safe nothrow @nogc unittest
+{
+	import std.stdio;
+	static immutable float[] data = [1,2,4,5,1,3,5,1,3,6,2,4,6,2,3,4];
+	auto m = mat4(data);
+	auto mi = inverse!float(m);
+	assert((m*mi-mat4(1)).abs < 1e-6);
+	assert((mi*m-mat4(1)).abs < 1e-6);
+}
