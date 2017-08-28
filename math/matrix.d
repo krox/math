@@ -11,18 +11,23 @@ private import std.algorithm : min, max;
 private import std.random : uniform;
 private import std.format;
 
-private import jive.array;
+private import mir.ndslice;
 private import math.linear;
 private import math.numerics;
 private import math.permutation : Permutation;
+
+private ContiguousMatrix!(immutable(T)) assumeUnique(T)(ContiguousMatrix!T s)
+{
+	return (cast(immutable)s).toImmutable;
+}
 
 template MatrixHelper(T)
 {
 	string toString() const @property
 	{
 		string s;
-		auto strings = Array2!string(height, width);
-		auto pitch = Array!size_t(width, 0);
+		auto strings = slice!string(height, width);
+		auto pitch = new size_t[width];
 
 		for(size_t i = 0; i < height; ++i)
 			for(size_t j = 0; j < width; ++j)
@@ -61,54 +66,57 @@ template MatrixHelper(T)
 		return s;
 	}
 
-	Slice2!T dup() const @property
+	/** copy the matrix into a newly allocated contigous array */
+	ContiguousMatrix!T dup() const @property
 	{
-		auto r = Slice2!T(height, width);
-		foreach(i,j, ref x; r)
-			x = this[i,j];
+		auto r = slice!T(height, width);
+		r[] = data[];
 		return r;
 	}
 
 	/** dup with row permutation */
-	Slice2!T dup(Permutation p) const @property
+	ContiguousMatrix!T dup(Permutation p) const @property
 	{
-		auto r = Slice2!T(height, width);
-		foreach(i,j, ref x; r)
-			x = this[p(cast(int)i),j];
+		auto r = slice!T(height, width);
+		for(size_t i = 0; i < height; ++i)
+			r[i][] = data[p(cast(int)i)][];
 		return r;
 	}
 
 	/** dup with row  and column permutation */
-	Slice2!T dup(Permutation p, Permutation q) const @property
+	ContiguousMatrix!T dup(Permutation p, Permutation q) const @property
 	{
-		auto r = Slice2!T(height, width);
-		foreach(i,j, ref x; r)
-			x = this[p(cast(int)i),q(cast(int)j)];
+		auto r = slice!T(height, width);
+		for(size_t i = 0; i < height; ++i)
+			for(size_t j = 0; j < width; ++j)
+				r[i,j] = this[p(cast(int)i),q(cast(int)j)];
 		return r;
 	}
 
     // TODO: efficient + - * for matrices of special structure
 
+	/** Matrix +- Matrix */
 	Matrix!T opBinary(string op, M)(M b) const
 		if(op == "+" || op == "-")
 	{
 		if(width != b.width || height != b.height)
 			throw new Exception("matrix dimension mismatch");
 
-		auto a = Slice2!T(height, b.width);
+		auto a = slice!T(height, b.width);
 		for(size_t j = 0; j < b.width; ++j)
 			for(size_t i = 0; i < height; ++i)
 				a[i,j] = mixin("this[i,j] "~op~" b[i,j]");
-		return Matrix(a.assumeUnique);
+		return Matrix(a.assumeUnique!T);
 	}
 
+	/** Matrix * Matrix */
 	Matrix!T opBinary(string op, M)(M b) const
 		if(op == "*")
 	{
 		if(width != b.height)
 			throw new Exception("matrix dimension mismatch");
 
-		auto a = Slice2!T(height, b.width);
+		auto a = slice!T(height, b.width);
 		for(size_t i = 0; i < height; ++i)
 			for(size_t j = 0; j < b.width; ++j)
 			{
@@ -116,42 +124,42 @@ template MatrixHelper(T)
 				for(size_t k = 1; k < width; ++k)
 					a[i,j] = a[i,j] + this[i,k]*b[k,j];
 			}
-		return Matrix!T(a.assumeUnique);
+		return Matrix!T(a.assumeUnique!T);
 	}
 
 	Matrix!T permute(Permutation p) const
 	{
-		return Matrix!T(this.dup(p).assumeUnique);
+		return Matrix!T(this.dup(p).assumeUnique!T);
 	}
 
 	Matrix!T permute(Permutation p, Permutation q) const
 	{
-		return Matrix!T(this.dup(p, q).assumeUnique);
+		return Matrix!T(this.dup(p, q).assumeUnique!T);
 	}
 }
 
 /**
  * dense storage of a (possibly non-square) matrix.
- * column major order in a contigous array.
+ * row major order in a contigous array.
  */
 struct Matrix(T)
 {
-	Slice2!(immutable(T)) data;
+	ContiguousMatrix!(immutable(T)) data;
 	mixin MatrixHelper!T;
 
-	this(Slice2!(immutable(T)) data)
+	this(ContiguousMatrix!(immutable(T)) data)
 	{
 		this.data = data;
 	}
 
 	size_t height() const @property
 	{
-		return data.size[0];
+		return data.length!0;
 	}
 
 	size_t width() const @property
 	{
-		return data.size[1];
+		return data.length!1;
 	}
 
 	ref const(T) opIndex(size_t i, size_t j) const
@@ -159,29 +167,20 @@ struct Matrix(T)
 		return data[i, j];
 	}
 
-	/** transposed matrix (without duplication) */
-	Matrix transpose() const
-	{
-		return Matrix(data.transpose);
-	}
-
 	Matrix adjoint() const
 	{
-		auto r = this.dup.transpose;
+		auto r = slice!T(width, height);
 		static if(is(T : Complex!R, R))
-			foreach(i, j, ref x; r)
-				x = conj(x);
-		return Matrix(r.assumeUnique);
+			r[] = data.universal.transposed[].map!(a=>a.conj);
+		else
+			r[] = data.universal.transposed[];
+		return Matrix(r.assumeUnique!T);
 	}
 
 	/** return squared L2 norm */
 	RealTypeOf!T sqNorm() const @property
 	{
-		RealTypeOf!T sum = 0;
-		for(size_t j = 0; j < width; ++j)
-			for(size_t i = 0; i < height; ++i)
-				sum += this[i,j].sqAbs;
-		return sum;
+		return RealTypeOf!T(0).reduce!"a+b"(data.map!(a=>a.sqAbs));
 	}
 
 	/** return L2 norm */
@@ -260,26 +259,26 @@ struct Matrix(T)
 
 	static Matrix!T random(Ring)(size_t height, size_t width, Ring ring)
 	{
-		auto data = Slice2!T(height, width);
+		auto data = slice!T(height, width);
 		for(size_t j = 0; j < width; ++j)
 			for(size_t i = 0; i < height; ++i)
 				data[i,j] = ring.random();
-		return Matrix!T(data.assumeUnique);
+		return Matrix!T(data.assumeUnique!T);
 	}
 
 	static Matrix!T build(alias fun)(size_t h, size_t w)
 	{
-		auto data = Slice2!T(h, w);
+		auto data = slice!T(h, w);
 		for(size_t j = 0; j < w; ++j)
 			for(size_t i = 0; i < h; ++i)
 				data[i,j] = binaryFun!(fun,"i","j")(i, j);
-		return Matrix!T(data.assumeUnique);
+		return Matrix!T(data.assumeUnique!T);
 	}
 
 	/** only explicitly generates upper/right half */
 	static Matrix!T buildHermitian(alias fun)(size_t n)
 	{
-		auto data = Slice2!T(n, n);
+		auto data = slice!T(n, n);
 		for(size_t j = 0; j < n; ++j)
 			for(size_t i = 0; i <= j; ++i)
 			{
@@ -298,24 +297,24 @@ struct Matrix(T)
 						data[j,i] = data[i,j];
 				}
 			}
-		return Matrix!T(data.assumeUnique);
+		return Matrix!T(data.assumeUnique!T);
 	}
 
 	static BandMatrix!T buildBand(alias fun)(size_t n, int kl, int ku)
 	{
 		assert(kl >= 0 && ku >= 0);
-		auto data = Slice2!T(kl+ku+1, n);
+		auto data = slice!T(kl+ku+1, n);
 		for(size_t j = 0; j < n; ++j)
 			for(size_t i = max(ku,j)-ku; i <= min(n-1,j+kl); ++i)
 				data[i+ku-j,j] = binaryFun!(fun,"i","j")(i, j);
-		return BandMatrix!T(kl, ku, data.assumeUnique);
+		return BandMatrix!T(kl, ku, data.assumeUnique!T);
 	}
 
 	/** only explicitly genrates upper/right half */
 	static BandMatrix!T buildSymmetricBand(alias fun)(size_t n, int kd)
 	{
 		assert(kd >= 0);
-		auto data = Slice2!T(2*kd+1, n);
+		auto data = slice!T(2*kd+1, n);
 		for(size_t j = 0; j < n; ++j)
 			for(size_t i = max(kd,j)-kd; i <= j; ++i)
 			{
@@ -323,15 +322,15 @@ struct Matrix(T)
 				if(i != j)
 					data[j+kd-i, i] = data[i+kd-j, j];
 			}
-		return BandMatrix!T(kd, kd, data.assumeUnique);
+		return BandMatrix!T(kd, kd, data.assumeUnique!T);
 	}
 
 	static BandMatrix!T buildIdentity(size_t n, T x = T(1))
 	{
-		auto data = Slice2!T(1, n);
+		auto data = slice!T(1, n);
 		for(size_t j = 0; j < n; ++j)
 			data[j,j] = x;
-		return BandMatrix!T(0, 0, data.assumeUnique);
+		return BandMatrix!T(0, 0, data.assumeUnique!T);
 	}
 
 	/**
@@ -348,27 +347,27 @@ struct Matrix(T)
 struct BandMatrix(T)
 {
 	const int kl, ku; // number of sub/super-diagonals
-	Slice2!(immutable(T)) data;
+	ContiguousMatrix!(immutable T) data;
 	mixin MatrixHelper!T;
 
-	this(int kl, int ku, Slice2!(immutable(T)) data)
+	this(int kl, int ku, ContiguousMatrix!(immutable T) data)
 	{
 		this.data = data;
 		this.kl = kl;
 		this.ku = ku;
 
-		if(kl+ku+1 != data.size[0] || kl >= height || ku >= height)
+		if(kl+ku+1 != data.length!0 || kl >= height || ku >= height)
 			throw new Exception("invalid dimensions of band matrix");
 	}
 
 	size_t height() const @property
 	{
-		return data.size[1]; // width == height
+		return data.length!1; // width == height
 	}
 
 	size_t width() const @property
 	{
-		return data.size[1];
+		return data.length!1;
 	}
 
 	ref const(T) opIndex(size_t i, size_t j) const
@@ -392,22 +391,22 @@ struct BandMatrix(T)
  */
 struct TriangularMatrix(T, bool lower, bool implicitOne, int offDiag = 0)
 {
-	Slice2!(immutable(T)) data;
+	ContiguousMatrix!(immutable(T)) data;
 	mixin MatrixHelper!T;
 
-	this(Slice2!(immutable(T)) data)
+	this(ContiguousMatrix!(immutable(T)) data)
 	{
 		this.data = data;
 	}
 
 	size_t height() const @property
 	{
-		return data.size[0];
+		return data.length!0;
 	}
 
 	size_t width() const @property
 	{
-		return data.size[1];
+		return data.length!1;
 	}
 
 	ref const(T) opIndex(size_t i, size_t j) const
@@ -432,7 +431,7 @@ struct TriangularMatrix(T, bool lower, bool implicitOne, int offDiag = 0)
 
 struct DenseLU(T)
 {
-	Slice2!(immutable(T)) m;
+	ContiguousMatrix!(immutable(T)) m;
 	Permutation p;	// row permutation
 
 	this(Matrix!T _m)
@@ -441,7 +440,7 @@ struct DenseLU(T)
 		auto m = _m.dup;
 		denseComputeLU!T(m, p);
 
-		this.m = m.assumeUnique;
+		this.m = (cast(immutable)m).toImmutable;
 		this.p = Permutation(p.assumeUnique);
 	}
 
@@ -449,7 +448,7 @@ struct DenseLU(T)
 	{
 		auto rhs = b.dup(p);
 		denseSolveLU!T(m, rhs);
-		return Matrix!T(rhs.assumeUnique);
+		return Matrix!T((cast(immutable)rhs).toImmutable);
 	}
 
 	/** lower/left part of the decomposition */
@@ -472,7 +471,7 @@ struct DenseLU(T)
 
 struct DenseQR(T)
 {
-	Slice2!(immutable(T)) m;
+	ContiguousMatrix!(immutable(T)) m;
 	immutable(RealTypeOf!T)[] beta;
 
 	this(Matrix!T _m)
@@ -495,7 +494,7 @@ struct DenseQR(T)
 
 	auto q()
 	{
-		auto q = Slice2!T(beta.length, beta.length);
+		auto q = slice!T(beta.length, beta.length);
 		foreach(i, j, ref x; q)
 			x = i==j ? 1 : 0;
 
@@ -518,7 +517,7 @@ struct DenseQR(T)
 
 struct DenseHessenberg(T)
 {
-	Slice2!(immutable(T)) m;
+	ContiguousMatrix!(immutable(T)) m;
 	immutable(RealTypeOf!T)[] beta;
 
 	this(Matrix!T _m)
@@ -534,7 +533,7 @@ struct DenseHessenberg(T)
 
 	auto q()
 	{
-		auto q = Slice2!T(beta.length, beta.length);
+		auto q = slice!T(beta.length, beta.length);
 		foreach(i, j, ref x; q)
 			x = i==j ? 1 : 0;
 
@@ -563,7 +562,7 @@ struct DenseSchur(T)
 	this(Matrix!T _m)
 	{
 		auto m = _m.dup;
-		auto q = Slice2!T(m.size[0], m.size[1]);
+		auto q = slice!T(m.length!0, m.length!1);
 
 		denseComputeSchur!T(m, q);
 

@@ -4,13 +4,13 @@ module math.linear;
  * linear algebra backend
  */
 
-private import jive.array;
-private import std.math;
-private import std.traits;
-private import std.complex;
-private import std.algorithm;
-private import jive.bitarray;
-private import math.numerics;
+import std.math;
+import std.traits;
+import std.complex;
+import std.algorithm;
+import mir.ndslice;
+import jive.bitarray;
+import math.numerics;
 
 /** Matrix decompositions
 
@@ -29,10 +29,10 @@ Cholesky	A = LDL^T			only for Hermitian A
 //////////////////////////////////////////////////////////////////////
 
 /** compute LU decomposition of m inplace, put row permutation into p */
-void denseComputeLU(T)(Slice2!T m, int[] p)
+void denseComputeLU(T)(ContiguousSlice!(2, T) m, int[] p)
 {
 	int n = cast(int)p.length;
-	if(m.size[0] != n || m.size[1] != n)
+	if(m.length!0 != n || m.length!1 != n)
 		throw new Exception("matrix dimension mismatch");
 
 	for(int i = 0; i < n; ++i)
@@ -77,41 +77,41 @@ void denseComputeLU(T)(Slice2!T m, int[] p)
 }
 
 /** solve linear equation of lower triangular matrix with implicit 1's on diagonal */
-void denseSolveL(T)(Slice2!(const(T)) m, Slice2!T b)
+void denseSolveL(T)(ContiguousSlice!(2, const T) m, ContiguousSlice!(2, T) b)
 {
-	int n = cast(int)m.size[0];
-	if(m.size[1] != n || b.size[0] != n)
+	int n = cast(int)m.length!0;
+	if(m.length!1 != n || b.length!0 != n)
 		throw new Exception("matrix dimension mismatch");
 
 	for(int k = 0; k < n; ++k)
 		for(int l = k+1; l < n; ++l)
-			for(int i = 0; i < b.size[1]; ++i)
+			for(int i = 0; i < b.length!1; ++i)
 				b[l,i] -= m[l,k] * b[k,i];
 }
 
 /** solve linear equation of upper triangular matrix */
-void denseSolveU(T)(Slice2!(const(T)) m, Slice2!T b)
+void denseSolveU(T)(ContiguousSlice!(2, const T) m, ContiguousSlice!(2, T) b)
 {
-	int n = cast(int)m.size[0];
-	if(m.size[1] != n || b.size[0] != n)
+	int n = cast(int)m.length!0;
+	if(m.length!1 != n || b.length!0 != n)
 		throw new Exception("matrix dimension mismatch");
 
 	for(int k = n-1; k >= 0; --k)
 	{
-		for(int i = 0; i < b.size[1]; ++i)
+		for(int i = 0; i < b.length!1; ++i)
 			b[k,i] /= m[k,k];
 
 		for(int l = k-1; l >= 0; --l)
-			for(int i = 0; i < b.size[1]; ++i)
+			for(int i = 0; i < b.length!1; ++i)
 				b[l,i] -= m[l,k] * b[k,i];
 	}
 }
 
 /** solve linear equation after LU decomposition was computed */
-void denseSolveLU(T)(Slice2!(const(T)) m, Slice2!T b)
+void denseSolveLU(T)(ContiguousSlice!(2, const T) m, ContiguousSlice!(2, T) b)
 {
-	int n = cast(int)m.size[0];
-	if(m.size[1] != n || b.size[0] != n)
+	int n = cast(int)m.length!0;
+	if(m.length!1 != n || b.length!0 != n)
 		throw new Exception("matrix dimension mismatch");
 
 	denseSolveL!T(m, b);
@@ -124,7 +124,7 @@ void denseSolveLU(T)(Slice2!(const(T)) m, Slice2!T b)
 //////////////////////////////////////////////////////////////////////
 
 /** same as scalarProduct(v, v) */
-RealTypeOf!T norm2(T)(Slice!(const(T)) a)
+RealTypeOf!T norm2(T)(UniversalVector!(const(T)) a)
 {
 	RealTypeOf!T r = 0;
 	for(int i = 0; i < a.length; ++i)
@@ -133,7 +133,7 @@ RealTypeOf!T norm2(T)(Slice!(const(T)) a)
 }
 
 /** scalar product of two vectors */
-T scalarProduct(T, bool conjugate = true)(Slice!(const(T)) a, Slice!(const(T)) b)
+T scalarProduct(T, bool conjugate = true)(UniversalVector!(const(T)) a, UniversalVector!(const(T)) b)
 {
 	if(a.length != b.length)
 		throw new Exception("vector dimension mismatch");
@@ -148,7 +148,7 @@ T scalarProduct(T, bool conjugate = true)(Slice!(const(T)) a, Slice!(const(T)) b
 }
 
 /** compute householder reflection inplace, returns beta factor */
-RealTypeOf!T makeHouseholder(T)(Slice!T v)
+RealTypeOf!T makeHouseholder(T)(UniversalVector!T v)
 {
 	T c = -phase(v[0])*sqrt(norm2!T(v));
 
@@ -165,11 +165,11 @@ RealTypeOf!T makeHouseholder(T)(Slice!T v)
 /** a = (1 - beta*|v><v|) * a */
 void applyHouseholder(T)(Slice2!T a, Slice!(const(T)) v, RealTypeOf!T beta)
 {
-	int n = cast(int)v.size[0]+1;
-	if(a.size[0] != n)
+	int n = cast(int)v.length!0+1;
+	if(a.length!0 != n)
 		throw new Exception("vector dimension mismatch");
 
-	for(int k = 0; k < a.size[1]; ++k)
+	for(int k = 0; k < a.length!1; ++k)
 	{
 		T s = beta * (a[0,k] + scalarProduct(v, a[1..$,k]));
 		a[0, k] -= s;
@@ -181,11 +181,11 @@ void applyHouseholder(T)(Slice2!T a, Slice!(const(T)) v, RealTypeOf!T beta)
 /** a = a * (1 - beta*|v><v|) */
 void applyHouseholderRight(T)(Slice2!T a, Slice!(const(T)) v, RealTypeOf!T beta)
 {
-	int n = cast(int)v.size[0]+1;
-	if(a.size[1] != n)
+	int n = cast(int)v.length!0+1;
+	if(a.length!1 != n)
 		throw new Exception("vector dimension mismatch");
 
-	for(int k = 0; k < a.size[0]; ++k)
+	for(int k = 0; k < a.length!0; ++k)
 	{
 		T s = beta * (a[k,0] + scalarProduct!(T,false)(v, a[k,1..$]));
 		a[k, 0] -= s;
@@ -223,7 +223,7 @@ void makeGivens(T)(ref T a, ref T b, ref RealTypeOf!T c, ref T s)
 
 void applyGivens(T)(Slice2!T m, int i, int j, RealTypeOf!T c, ref T s)
 {
-	for(int k = 0; k < m.size[1]; ++k)
+	for(int k = 0; k < m.length!1; ++k)
 	{
 		auto tmp = c*m[i,k] + s*m[j,k];
 		m[j,k] = -conj(s)*m[i,k] + c*m[j,k];
@@ -233,7 +233,7 @@ void applyGivens(T)(Slice2!T m, int i, int j, RealTypeOf!T c, ref T s)
 
 void applyGivensRight(T)(Slice2!T m, int i, int j, RealTypeOf!T c, ref T s)
 {
-	for(int k = 0; k < m.size[1]; ++k)
+	for(int k = 0; k < m.length!1; ++k)
 	{
 		auto tmp = c*m[k,i] + conj(s)*m[k,j];
 		m[k,j] = -s*m[k,i] + c*m[k,j];
@@ -245,7 +245,7 @@ void applyGivensRight(T)(Slice2!T m, int i, int j, RealTypeOf!T c, ref T s)
 void denseComputeQR(T)(Slice2!T m, RealTypeOf!T[] beta)
 {
 	int n = cast(int)beta.length;
-	if(m.size[0] != n || m.size[1] != n)
+	if(m.length!0 != n || m.length!1 != n)
 		throw new Exception("matrix dimension mismatch");
 
 	for(int k = 0; k < n; ++k)
@@ -262,7 +262,7 @@ void denseComputeQR(T)(Slice2!T m, RealTypeOf!T[] beta)
 void denseSolveQR(T)(Slice2!(const(T)) m, const(RealTypeOf!T)[] beta, Slice2!T b)
 {
 	int n = cast(int)beta.length;
-	if(m.size[0] != n || m.size[1] != n || b.size[0] != n)
+	if(m.length!0 != n || m.length!1 != n || b.length!0 != n)
 		throw new Exception("matrix dimension mismatch");
 
 	for(int k = 0; k < n; ++k)
@@ -275,7 +275,7 @@ void denseSolveQR(T)(Slice2!(const(T)) m, const(RealTypeOf!T)[] beta, Slice2!T b
 void denseComputeHessenberg(T)(Slice2!T m, RealTypeOf!T[] beta)
 {
 	int n = cast(int)beta.length;
-	if(m.size[0] != n || m.size[1] != n)
+	if(m.length!0 != n || m.length!1 != n)
 		throw new Exception("matrix dimension mismatch");
 
 	for(int k = 0; k < n-1; ++k)
@@ -303,8 +303,8 @@ void denseComputeHessenberg(T)(Slice2!T m, RealTypeOf!T[] beta)
  */
 void denseComputeSchur(T)(Slice2!T m, Slice2!T v = Slice2!T.init)
 {
-	size_t n = m.size[0];
-	if(m.size[1] != n || v.ptr !is null && (v.size[0] != n || v.size[1] != n))
+	size_t n = m.length!0;
+	if(m.length!1 != n || v.ptr !is null && (v.length!0 != n || v.length!1 != n))
 		throw new Exception("matrix dimension mismatch");
 
 	// initialize q to identity matrix
