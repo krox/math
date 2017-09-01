@@ -5,12 +5,12 @@
 	"homepage": "https://github.com/Krox/math",
 	"license": "public domain",
 
-	"targetType": "sourceLibrary",
+	"targetType": "library",
 	"sourcePaths": ["math"],
 	"importPaths": ["."],
 	"dependencies": {
-		"jive": "*",
+		"jive": "~>0.2.0",
 		"highprec": "*",
-		"mir-algorithm": "~>0.6.9",
+		"mir-algorithm": "~>0.6.11",
 	},
 }
