@@ -2,7 +2,6 @@ module math.factorring;
 
 private import std.format;
 private import std.algorithm : move;
-private import highprec.integer;
 
 struct Coset(Ring)
 {
@@ -27,11 +26,7 @@ struct Coset(Ring)
 
 	static Coset random(Ring mod)
 	{
-		static if(is(Ring == Integer))
-		{
-			return Coset(Ring.random(mod), mod); // TODO: use fast no-check constructor
-		}
-		else assert(false, "TODO");
+		return Coset(Ring.random(mod), mod); // TODO: use fast no-check constructor
 	}
 
 	string toString() const @property
@@ -42,14 +37,7 @@ struct Coset(Ring)
 	/** return 1/this */
 	Coset inverse() const @property
 	{
-		static if(is(Ring == Integer))
-		{
-			return Coset(val.inverseMod(mod), mod);
-		}
-		else
-		{
-			assert(false, "TODO");
-		}
+		return Coset(val.inverseMod(mod), mod);
 	}
 
 	Coset opUnary(string op)() const
@@ -59,7 +47,7 @@ struct Coset(Ring)
 	}
 
 	Coset opBinary(string op, T)(T rhs) const
-		if(is(T == int) || is(T == Integer) || is(T == Ring))
+		if(is(T == int) || is(T == Ring))
 	{
 		     static if(op == "+") return Coset(val + rhs, mod);
 		else static if(op == "-") return Coset(val - rhs, mod);

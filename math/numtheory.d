@@ -746,7 +746,7 @@ struct Factorization
 		foreach(f; factors(n))
 			fs.pushBack(f);
 
-		normalize();
+		sort!"a[0]<b[0]"(fs[]);
 		assert(multiply == n);
 		//assert(allPrime);
 	}
@@ -768,20 +768,6 @@ struct Factorization
 		}
 
 		return r;
-	}
-
-	/**
-	 * sort factors and collect duplicates
-	 */
-	void normalize()
-	{
-		sort!"a[0] < b[0]"(this[]);
-		foreach(i, f, ref bool rem; &this.prune)
-			if(i+1 < this.length && f[0] == this[i+1][0])
-			{
-				this[i+1][1] += f[1];
-				rem = true;
-			}
 	}
 
 	/**

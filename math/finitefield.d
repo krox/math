@@ -365,3 +365,10 @@ struct FFE
         return a;
     }
 }
+
+unittest
+{
+	auto F = FiniteField(3,2);
+	auto x = FFE(1,F);
+	assert((x+x)^^3 == FFE.fromExp(F, 4));
+}
