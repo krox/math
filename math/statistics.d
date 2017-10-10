@@ -7,12 +7,10 @@ private import std.algorithm;
 private import std.stdio;
 private import std.format;
 private import jive.array;
-private import jive.internal;
-private import math.mat;
 
 struct Histogram
 {
-    double low = 0, high = 0;
+	double low = 0, high = 0;
     int nBins = 0;
 
     Array!long hist;
@@ -103,105 +101,136 @@ struct Histogram
     }
 }
 
-/** put n-dimensional data points in, get average/variance/covariance out */
-struct Statistics(size_t n = 1)
+/**
+ * Estimate mean/variance/covariance of a population as samples are coming in.
+ * This is the same as the standard formula "Var(x) = n/(n-1) (E(x^2) - E(x)^2)"
+ * but numerically more stable.
+ */
+struct Estimator(size_t N = 1)
+	if(N >= 1)
 {
-    double count = 0;
-    double[n] sum;
-    double[n][n] sum2;
+	@nogc: nothrow: pure: @safe:
 
-    /** add a new data point */
-    void add(Times!(n, double) xs, double w = 1)
-    {
-        // TODO: figure out a way to do this statically
-        if(count == 0)
-        {
-            foreach(ref x; sum)
-                x = 0;
-            foreach(ref l; sum2)
-                foreach(ref x; l)
-                    x = 0;
-        }
+	public double n = 0;
+	private double[N] avg = [0]; // = 1/n ∑ x_i
+	private double[N][N] sum2 = [[0]]; //= ∑ (x_i - meanX)*(y_i - meanY)
 
-        count += w;
-        foreach(i, x; xs)
-            sum[i] += w*x;
-        foreach(i, x; xs)
-            foreach(j, y; xs)
-                sum2[i][j] += w*x*y;
-    }
+	static if(N == 1)
+	this(const(double)[] xs)
+	{
+		foreach(x; xs)
+			add(x);
+	}
 
-    /** average in dimension i */
-    double avg(size_t i = 0)() const nothrow @property @safe
-    {
-        return sum[i]/count;
-    }
+	/** add a new data point */
+	void add(double[N] x...)
+	{
+		// TODO: figure out a way to do this statically
+		if(n == 0)
+		{
+			foreach(ref a; avg)
+				a = 0;
+			foreach(ref l; sum2)
+				l[] = 0;
+		}
 
-    /** variance in dimension i */
-    double var(size_t i = 0)() const nothrow @property @safe
-    {
-        return cov!(i,i);
-    }
+		n += 1;
+		double[N] dx;
+		for(int i = 0; i < N; ++i)
+		{
+			dx[i] = x[i] - avg[i];
+			avg[i] += dx[i] / n;
+		}
 
-    /** standard deviation in dimension i */
-    double stddev(size_t i = 0)() const nothrow @property @safe
-    {
-        return sqrt(var!i);
-    }
+		for(int i = 0; i < N; ++i)
+			for(int j = 0; j < N; ++j)
+				sum2[i][j] += dx[i]*(x[j] - avg[j]);
+	}
 
-    /** covariance between diemnsions i and j */
-    double cov(size_t i = 0, size_t j = 1)() const nothrow @property @safe
-    {
-        return sum2[i][j]/count - sum[i]/count * sum[j]/count;
-    }
+	/** mean in dimension i */
+	Var mean(int i = 0) const
+	{
+		if(n < 2)
+			return Var(avg[i], double.infinity);
+		return Var(avg[i], var(i)/n);
+	}
 
-    /** correlation between diemnsions i and j */
-    double corr(size_t i = 0, size_t j = 1)() const nothrow @property @safe
-    {
-        return cov!(i,j) / sqrt(var!i*var!j);
-    }
+	/** variance in dimension i */
+	double var(int i = 0) const
+	{
+		// NOTE: this is not the sample-variance, but an estimator of the population variance
+		if(n < 2)
+			return double.nan;
+		return sum2[i][i]/(n-1);
+	}
+
+	/** covariane between dimensions i and j */
+	double cov(int i = 0, int j = 1) const
+	{
+		if(n < 2)
+			return double.nan;
+		return sum2[i][j]/(n-1);
+	}
+
+	/** correlation coefficient between dimensions i and j */
+	double corr(int i = 0, int j = 1) const
+	{
+		return cov(i,j)/sqrt(var(i)*var(j));
+	}
+
+	/** reset everything */
+	void clear()
+	{
+		n = 0;
+		avg[] = 0;
+		foreach(ref s; sum2)
+			s[] = 0;
+	}
 }
+
+alias Average = Estimator!1;
 
 /** analyze autocorrelation of a single stream of data */
 struct Autocorrelation(size_t len = 20)
 {
-	private double[len] history; // previously added values
 	private long count = 0;
-	private double sum = 0;
-	private double[len] sum2 = 0;
+	private double[len] history; // previously added values
+	private Estimator!2[len] ac;
+
+	this(const(double)[] xs)
+	{
+		foreach(x; xs)
+			add(x);
+	}
 
 	/** add a new data point */
 	void add(double x) pure
 	{
-		sum += x;
 		history[count % len] = x;
-		for(int i = 0; i < min(count, len); ++i)
-			sum2[i] += x*history[(count - i) % len];
+		for(int i = 0; i < min(count+1, len); ++i)
+			ac[i].add(x, history[(count - i) % len]);
 		count += 1;
 	}
 
-	/** mean of data[i] */
-	double mean() const pure
+	Var mean() const pure
 	{
-		return sum / count;
+		return ac[0].mean;
 	}
 
-	/** variance of data[i] */
 	double var() const pure
 	{
-		return cov(0);
+		return ac[0].var;
 	}
 
-	/** covariance of data[i] and data[i-lag] */
 	double cov(int lag = 1) const pure
 	{
-		return sum2[lag]/(count-lag) - sum/count * sum/count;
+		return ac[lag].cov;
 	}
 
 	/** correlation between data[i] and data[i-lag] */
 	double corr(int lag = 1) const pure
 	{
-		return cov(lag) / var();
+		return ac[lag].corr;
 	}
 
 	/** print data to stdout */
@@ -215,8 +244,8 @@ struct Autocorrelation(size_t len = 20)
 	void clear() pure
 	{
 		count = 0;
-		sum = 0;
-		sum2[] = 0;
+		foreach(ref a; ac)
+			a.clear();
 	}
 }
 
@@ -230,59 +259,59 @@ struct Autocorrelation(size_t len = 20)
  */
 struct Var
 {
-    double mean = double.nan;
-    double var = 0;
+	double mean = double.nan;
+	double var = 0;
 
-	this(double mean, double var = 0) pure nothrow @safe
+	this(double mean, double var = 0) @nogc nothrow pure @safe
 	{
 		this.mean = mean;
 		this.var = var;
 	}
 
-    /** standard deviation sqrt(variance) */
-    double stddev() const pure nothrow @property @safe
-    {
-        return sqrt(var);
-    }
+	/** standard deviation sqrt(variance) */
+	double stddev() const @property @nogc nothrow pure @safe
+	{
+		return sqrt(var);
+	}
 
-    Var opBinary(string op)(double b) const pure nothrow @safe
-    {
-        switch(op)
-        {
-            case "+": return Var(mean + b, var);
-            case "-": return Var(mean - b, var);
-            case "*": return Var(mean*b, var*b*b);
-            case "/": return Var(mean/b, var/(b*b));
-            default: assert(false);
-        }
-    }
+	Var opBinary(string op)(double b) const @nogc nothrow pure @safe
+	{
+		switch(op)
+		{
+			case "+": return Var(mean + b, var);
+			case "-": return Var(mean - b, var);
+			case "*": return Var(mean*b, var*b*b);
+			case "/": return Var(mean/b, var/(b*b));
+			default: assert(false);
+		}
+	}
 
-    Var opBinaryRight(string op)(double a) const pure nothrow @safe
-    {
-        switch(op)
-        {
-            case "+": return Var(a + mean, var);
-            case "-": return Var(a - mean, var);
-            case "*": return Var(a * mean, a*a*var);
-            default: assert(false);
-        }
-    }
+	Var opBinaryRight(string op)(double a) const @nogc nothrow pure @safe
+	{
+		switch(op)
+		{
+			case "+": return Var(a + mean, var);
+			case "-": return Var(a - mean, var);
+			case "*": return Var(a * mean, a*a*var);
+			default: assert(false);
+		}
+	}
 
-    Var opBinary(string op)(Var b) const pure nothrow @safe
-    {
-        switch(op)
-        {
-            case "+": return Var(mean + b.mean, var + b.var);
-            case "-": return Var(mean - b.mean, var + b.var);
-            case "*": return Var(mean * b.mean, mean*mean*b.var + b.mean*b.mean*var + var*b.var);
-            default: assert(false);
-        }
-    }
+	Var opBinary(string op)(Var b) const @nogc nothrow pure @safe
+	{
+		switch(op)
+		{
+			case "+": return Var(mean + b.mean, var + b.var);
+			case "-": return Var(mean - b.mean, var + b.var);
+			case "*": return Var(mean * b.mean, mean*mean*b.var + b.mean*b.mean*var + var*b.var);
+			default: assert(false);
+		}
+	}
 
-    void opOpAssign(string op, S)(S b) pure nothrow @safe
-    {
-      this = this.opBinary!op(b);
-    }
+	void opOpAssign(string op, S)(S b) @nogc nothrow pure @safe
+	{
+		this = this.opBinary!op(b);
+	}
 
 	/** returns human readable string "mean(error)" */
 	void toString(scope void delegate(const(char)[]) sink, FormatSpec!char fmt) const
@@ -323,74 +352,6 @@ struct Var
 	string toString() const
 	{
 		return format("%s", this);
-	}
-}
-
-/**
- * Estimate mean and variance of population as samples are coming in. This is
- * the same as the standard formula "Var(x) = n/(n-1) (E(x^2) - E(x)^2)" but
- * numerically more stable.
- */
-struct Average
-{
-	long n = 0;
-	double m = 0; // = 1/n ∑ x_i
-	double m2 = 0; // = ∑ (x_i - m)^2
-
-	/**
-	 * Constructor taking data points. Trimming some fraction of the data
-	 * makes it more robust, but potentially less accurate.
-	 */
-	this(const(double)[] xs, double trim = 0) pure
-	{
-		assert(0 <= trim && trim <= 1);
-		Array!double arr;
-		if(trim != 0)
-		{
-			arr = Array!double(xs[]);
-			sort(arr[]);
-			size_t cut = min(xs.length-1, cast(size_t)(trim*xs.length));
-			xs = arr[cut/2 .. $-cut/2];
-		}
-
-		foreach(x; xs)
-			add(x);
-	}
-
-	/** add a sample. NaN is silently ignored. */
-	void add(double x) pure
-	{
-		if(isNaN(x))
-			return;
-		n += 1;
-		double delta = x - m;
-		m += delta/n;
-		double delta2 = x - m;
-		m2 += delta*delta2;
-	}
-
-	/** estimate of population mean */
-	Var mean() const pure
-	{
-		if(n < 2)
-			return Var(m, double.infinity);
-		return Var(m, var/n);
-	}
-
-	/** estimate of population variance */
-	double var() const pure
-	{
-		if(n < 2)
-			return double.nan;
-		return m2/(n-1);
-	}
-
-	/** reset everything */
-	void clear() pure
-	{
-		n = 0;
-		m = 0;
-		m2 = 0;
 	}
 }
 
