@@ -6,7 +6,8 @@
 	"license": "public domain",
 
 	"targetType": "library",
-	"sourcePaths": ["math"],
+	"libs": ["gmp", "mpfr"],
+	"sourcePaths": ["math", "bindings"],
 	"importPaths": ["."],
 	"dependencies": {
 		"jive": "~>0.2.0",

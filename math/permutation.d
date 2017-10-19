@@ -10,7 +10,7 @@ private import std.uni : isWhite;
 
 private import jive.bitarray;
 
-private import highprec.integer;
+private import math.integer;
 
 struct Permutation
 {
@@ -134,7 +134,7 @@ struct Permutation
 					done[j] = true;
 					++l;
 				}
-				r = r.lcm(l);
+				r = lcm(r, l);
 			}
 
 		return r;
