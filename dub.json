@@ -11,7 +11,7 @@
 	"importPaths": ["."],
 	"dependencies": {
 		"jive": "~>0.2.0",
-		"highprec": "*",
 		"mir-algorithm": "~>0.6.11",
+		"mir-random": "~>0.2.8",
 	},
 }

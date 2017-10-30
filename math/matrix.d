@@ -14,15 +14,110 @@ private import std.format;
 private import mir.ndslice;
 private import math.linear;
 private import math.numerics;
-private import math.permutation : Permutation;
+import mir.random;
 
-private ContiguousMatrix!(immutable(T)) assumeUnique(T)(ContiguousMatrix!T s)
+/**
+ * Dense matrix stored in a (row-major) contigous chunk of memory.
+ * Copy-Construction is disabled. Use .dup or .move accordingly.
+ */
+struct Matrix(T)
 {
-	return (cast(immutable)s).toImmutable;
-}
+	ContiguousMatrix!T data;
 
-template MatrixHelper(T)
-{
+	/** allocate new (uninitialized) matrix */
+	this(size_t height, size_t width)
+	{
+		data = stdcUninitSlice!T(height, width);
+	}
+
+	/** copy data from arbitrary matrix-like object */
+	this(M)(auto ref M m)
+	{
+		this(m.length!0, m.length!1);
+		for(size_t i = 0; i < height; ++i)
+			for(size_t j = 0; j < width; ++j)
+				this[i,j] = m[i,j];
+	}
+
+	/** create zero-matrix */
+	static Matrix zero(size_t n, size_t m)
+	{
+		auto r = Matrix(n, m);
+		r[] = T(0);
+		return r;
+	}
+
+	/** create (square) identity matrix */
+	static Matrix identity(size_t n)
+	{
+		auto r = Matrix(n, n);
+		r[] = T(0);
+		r[].diagonal[] = T(1);
+		return r;
+	}
+
+	/** free memory */
+	~this()
+	{
+		stdcFreeSlice(data);
+	}
+
+	/** disable copy-construction. use `.dup` or `.move` instead */
+	@disable this(this);
+
+	/** height of the matrix */
+	size_t height() const @property
+	{
+		return data.length!0;
+	}
+
+	/** width of the matrix */
+	size_t width() const @property
+	{
+		return data.length!1;
+	}
+
+	ContiguousMatrix!T opSlice()
+	{
+		return data;
+	}
+
+	ContiguousMatrix!(const(T)) opSlice() const
+	{
+		return data.toConst;
+	}
+
+	ContiguousMatrix!(immutable(T)) opSlice() immutable
+	{
+		return data.toImmutable;
+	}
+
+	ref T opIndex(size_t i, size_t j)
+	{
+		return this[][i, j];
+	}
+
+	ref const(T) opIndex(size_t i, size_t j) const
+	{
+		return this[][i, j];
+	}
+
+	ref immutable(T) opIndex(size_t i, size_t j) immutable
+	{
+		return this[][i, j];
+	}
+
+	void opIndexAssign(B)(auto ref B b)
+	{
+		this[][] = b;
+	}
+
+	void opIndexAssign(B)(auto ref B b, size_t i, size_t j)
+	{
+		this[][i,j] = b;
+	}
+
+	/** human-readable repesenation */
 	string toString() const @property
 	{
 		string s;
@@ -66,130 +161,115 @@ template MatrixHelper(T)
 		return s;
 	}
 
-	/** copy the matrix into a newly allocated contigous array */
-	ContiguousMatrix!T dup() const @property
+	/** make a new copy of the matrix */
+	Matrix dup() const
 	{
-		auto r = slice!T(height, width);
-		r[] = data[];
+		auto r = Matrix(height, width);
+		r[] = this[];
 		return r;
 	}
 
 	/** dup with row permutation */
-	ContiguousMatrix!T dup(Permutation p) const @property
+	Matrix dup(const(int)[] p) const
 	{
-		auto r = slice!T(height, width);
-		for(size_t i = 0; i < height; ++i)
-			r[i][] = data[p(cast(int)i)][];
+		auto r = Matrix(height, width);
+		for(int i = 0; i < height; ++i)
+			r[][i, 0..$] = data[][p[i], 0..$];
 		return r;
 	}
 
 	/** dup with row  and column permutation */
-	ContiguousMatrix!T dup(Permutation p, Permutation q) const @property
+	Matrix dup(const(int)[] p, const(int)[] q) const
 	{
-		auto r = slice!T(height, width);
+		auto r = Matrix(height, width);
 		for(size_t i = 0; i < height; ++i)
 			for(size_t j = 0; j < width; ++j)
-				r[i,j] = this[p(cast(int)i),q(cast(int)j)];
+				r[i,j] = this[p[i], q[j]];
 		return r;
 	}
 
-    // TODO: efficient + - * for matrices of special structure
+	/** Matrix * / scalar */
+	Matrix opBinary(string op, S)(auto ref S b) const
+		if((op == "*" || op == "/") && is(typeof(T(b))))
+	{
+		auto a = Matrix(height, width);
+		a[] = this[].opBinary!op(b);
+		return a;
+	}
+
+	/** scalar * Matrix */
+	Matrix opBinaryRight(string op, S)(auto ref S b) const
+		if(op == "*" && is(typeof(T(b))))
+	{
+		Matrix!T a = Matrix(height, width);
+		a[] = this[].opBinaryRight!op(b);
+		return a;
+	}
 
 	/** Matrix +- Matrix */
-	Matrix!T opBinary(string op, M)(M b) const
+	Matrix opBinary(string op)(auto ref const Matrix b) const
 		if(op == "+" || op == "-")
 	{
 		if(width != b.width || height != b.height)
 			throw new Exception("matrix dimension mismatch");
 
-		auto a = slice!T(height, b.width);
-		for(size_t j = 0; j < b.width; ++j)
-			for(size_t i = 0; i < height; ++i)
-				a[i,j] = mixin("this[i,j] "~op~" b[i,j]");
-		return Matrix(a.assumeUnique!T);
+		auto a = Matrix(height, width);
+		a[] = this[].opBinary!op(b[]);
+		return a;
 	}
 
 	/** Matrix * Matrix */
-	Matrix!T opBinary(string op, M)(M b) const
+	Matrix opBinary(string op)(auto ref const Matrix b) const
 		if(op == "*")
 	{
 		if(width != b.height)
 			throw new Exception("matrix dimension mismatch");
 
-		auto a = slice!T(height, b.width);
+		auto a = Matrix(height, b.width);
 		for(size_t i = 0; i < height; ++i)
 			for(size_t j = 0; j < b.width; ++j)
-			{
-				a[i,j] = this[i,0]*b[0,j];
-				for(size_t k = 1; k < width; ++k)
-					a[i,j] = a[i,j] + this[i,k]*b[k,j];
-			}
-		return Matrix!T(a.assumeUnique!T);
+				a[i,j] = T(0).reduce!"a+b"(this[][i,0..$]*b[][0..$,j]);
+		return a;
 	}
 
-	Matrix!T permute(Permutation p) const
+	auto adjoint() const
 	{
-		return Matrix!T(this.dup(p).assumeUnique!T);
-	}
-
-	Matrix!T permute(Permutation p, Permutation q) const
-	{
-		return Matrix!T(this.dup(p, q).assumeUnique!T);
-	}
-}
-
-/**
- * dense storage of a (possibly non-square) matrix.
- * row major order in a contigous array.
- */
-struct Matrix(T)
-{
-	ContiguousMatrix!(immutable(T)) data;
-	mixin MatrixHelper!T;
-
-	this(ContiguousMatrix!(immutable(T)) data)
-	{
-		this.data = data;
-	}
-
-	size_t height() const @property
-	{
-		return data.length!0;
-	}
-
-	size_t width() const @property
-	{
-		return data.length!1;
-	}
-
-	ref const(T) opIndex(size_t i, size_t j) const
-	{
-		return data[i, j];
-	}
-
-	Matrix adjoint() const
-	{
-		auto r = slice!T(width, height);
 		static if(is(T : Complex!R, R))
-			r[] = data.universal.transposed[].map!(a=>a.conj);
+			return this[].transposed.map!conj;
 		else
-			r[] = data.universal.transposed[];
-		return Matrix(r.assumeUnique!T);
+			return this[].transposed;
 	}
 
-	/** return squared L2 norm */
-	RealTypeOf!T sqNorm() const @property
+	/** L1 norm */
+	RealTypeOf!T norm1() const @property
 	{
-		return RealTypeOf!T(0).reduce!"a+b"(data.map!(a=>a.sqAbs));
+		return RealTypeOf!T(0).reduce!"a+b"(this[].map!abs);
 	}
 
-	/** return L2 norm */
-	RealTypeOf!T norm() const @property
+	/** squared L2 norm */
+	RealTypeOf!T sqNorm2() const @property
 	{
-		return sqNorm.sqrt;
+		return RealTypeOf!T(0).reduce!"a+b"(this[].map!sqAbs);
 	}
 
-	Matrix!T pow(long exp)
+	/** L2 norm */
+	RealTypeOf!T norm2() const @property
+	{
+		return sqNorm2.sqrt;
+	}
+
+	/** L_infinity norm */
+	RealTypeOf!T normInf() const @property
+	{
+		return RealTypeOf!T(0).reduce!max(this[].map!abs);
+	}
+
+	/** most common choice for numerics */
+	alias norm = normInf;
+
+	/** matrix ^^ int */
+	Matrix!T opBinary(string op)(long exp) const
+		if(op == "^^")
 	{
 		assert(width > 0);
 		if(width != height)
@@ -198,14 +278,14 @@ struct Matrix(T)
 			throw new Exception("non-positive powers not implemented (yet?)");
 
 		Matrix!T r;
-		Matrix!T base = this;
+		auto base = this.dup;
 
 		while(exp)
 		{
 			if(exp & 1)
 			{
 				if(r.width == 0)
-					r = base;
+					r = base.dup;
 				else
 					r = r * base;
 			}
@@ -218,7 +298,7 @@ struct Matrix(T)
 	/** compute LU decomposition */
 	DenseLU!(T) lu()()
 	{
-		return DenseLU!(T)(this);
+		return DenseLU!T(this);
 	}
 
 	/** compute QR decomposition */
@@ -237,112 +317,45 @@ struct Matrix(T)
 		return DenseSchur!T(this);
 	}
 
-	static Matrix!T random(size_t height, size_t width)
+	/** generate a matrix with random elements */
+	static Matrix!T random(Rng)(ref Rng rng, size_t height, size_t width)
+		if (isSaturatedRandomEngine!Rng)
 	{
+		auto r = Matrix!T(height, width);
+		foreach(ref x; r[].flattened)
+			static if(isFloatingPoint!T)
+				x = rng.rand!T;
+			else static if(is(T : Complex!R, R))
+				x = T(rng.rand!R, rng.rand!R);
+			else
+				x = T.random(rng);
+		return r;
+	}
+
+	/** generate a hermitian matrix with random elements */
+	static Matrix!T randomHermitian(Rng)(ref Rng rng, size_t n)
+		if (isSaturatedRandomEngine!Rng)
+	{
+		auto r = Matrix!T(n, n);
 		static if(isFloatingPoint!T)
-			return build!((i,j)=> cast(T)uniform(-1.0, 1.0))(height, width);
+		{
+			r[].eachUploPair!((ref u, ref l){ u = rng.rand!T; l = u; }, false);
+			r[].diagonal.each!((ref x){ x = rng.rand!T; });
+		}
 		else static if(is(T : Complex!R, R))
-			return build!((i,j)=> T(uniform(-1.0,1.0), uniform(-1.0,1.0)))(height, width);
+		{
+			r[].eachUploPair!((ref u, ref l){ u = T(rng.rand!R, rng.rand!R); l = u.conj; }, false);
+			r[].diagonal.each!((ref x){ x = T(rng.rand!R); });
+		}
 		else
-			return build!((i,j)=> T.random())(height, width);
-	}
-
-	static Matrix!T randomHermitian(size_t n)
-	{
-		static if(isFloatingPoint!T)
-			return buildHermitian!((i,j)=> cast(T)uniform(-1.0, 1.0))(n);
-		else static if(is(T : Complex!R, R))
-			return buildHermitian!((i,j)=> T(uniform(-1.0,1.0), uniform(-1.0,1.0)))(n);
-		else
-			return buildHermitian!((i,j)=> T.random())(n);
-	}
-
-	static Matrix!T random(Ring)(size_t height, size_t width, Ring ring)
-	{
-		auto data = slice!T(height, width);
-		for(size_t j = 0; j < width; ++j)
-			for(size_t i = 0; i < height; ++i)
-				data[i,j] = ring.random();
-		return Matrix!T(data.assumeUnique!T);
-	}
-
-	static Matrix!T build(alias fun)(size_t h, size_t w)
-	{
-		auto data = slice!T(h, w);
-		for(size_t j = 0; j < w; ++j)
-			for(size_t i = 0; i < h; ++i)
-				data[i,j] = binaryFun!(fun,"i","j")(i, j);
-		return Matrix!T(data.assumeUnique!T);
-	}
-
-	/** only explicitly generates upper/right half */
-	static Matrix!T buildHermitian(alias fun)(size_t n)
-	{
-		auto data = slice!T(n, n);
-		for(size_t j = 0; j < n; ++j)
-			for(size_t i = 0; i <= j; ++i)
-			{
-				data[i,j] = binaryFun!(fun,"i","j")(i, j);
-
-				static if(is(T : Complex!R, R))
-				{
-					if(i == j)
-						data[i,j] = 0.5*(data[i,j] + conj(data[i,j]));
-					else
-						data[j,i] = conj(data[i,j]);
-				}
-				else
-				{
-					if(i != j)
-						data[j,i] = data[i,j];
-				}
-			}
-		return Matrix!T(data.assumeUnique!T);
-	}
-
-	static BandMatrix!T buildBand(alias fun)(size_t n, int kl, int ku)
-	{
-		assert(kl >= 0 && ku >= 0);
-		auto data = slice!T(kl+ku+1, n);
-		for(size_t j = 0; j < n; ++j)
-			for(size_t i = max(ku,j)-ku; i <= min(n-1,j+kl); ++i)
-				data[i+ku-j,j] = binaryFun!(fun,"i","j")(i, j);
-		return BandMatrix!T(kl, ku, data.assumeUnique!T);
-	}
-
-	/** only explicitly genrates upper/right half */
-	static BandMatrix!T buildSymmetricBand(alias fun)(size_t n, int kd)
-	{
-		assert(kd >= 0);
-		auto data = slice!T(2*kd+1, n);
-		for(size_t j = 0; j < n; ++j)
-			for(size_t i = max(kd,j)-kd; i <= j; ++i)
-			{
-				data[i+kd-j,j] = binaryFun!(fun,"i","j")(i, j);
-				if(i != j)
-					data[j+kd-i, i] = data[i+kd-j, j];
-			}
-		return BandMatrix!T(kd, kd, data.assumeUnique!T);
-	}
-
-	static BandMatrix!T buildIdentity(size_t n, T x = T(1))
-	{
-		auto data = slice!T(1, n);
-		for(size_t j = 0; j < n; ++j)
-			data[j,j] = x;
-		return BandMatrix!T(0, 0, data.assumeUnique!T);
-	}
-
-	/**
-	 * positive definite matrix (and thus invertible)
-	 * but with very bad condition number. Used for numerics testing.
-	 */
-	static Matrix!T buildHilbert(size_t n)
-	{
-		return build!((i,j)=>T(1)/(1+cast(int)i+cast(int)j))(n, n);
+		{
+			static assert(false);
+		}
+		return r;
 	}
 }
 
+/+
 /** efficient storage of a square band matrix */
 struct BandMatrix(T)
 {
@@ -385,16 +398,21 @@ struct BandMatrix(T)
 		zero = T(0);
 	}
 }
++/
 
 /**
- * lower/upper triangular matrix with/without implicit 1's on the diagonal
+ * read-only access to lower/upper triangular matrix with/without implicit 1's on the diagonal
  */
-struct TriangularMatrix(T, bool lower, bool implicitOne, int offDiag = 0)
+struct TriangularView(T, bool lower, bool implicitOne, int offDiag = 0)
 {
-	ContiguousMatrix!(immutable(T)) data;
-	mixin MatrixHelper!T;
+	ContiguousMatrix!(const(T)) data;
 
-	this(ContiguousMatrix!(immutable(T)) data)
+	size_t length(size_t i)() const @property
+	{
+		return data.length!i;
+	}
+
+	this(ContiguousMatrix!(const(T)) data)
 	{
 		this.data = data;
 	}
@@ -409,148 +427,127 @@ struct TriangularMatrix(T, bool lower, bool implicitOne, int offDiag = 0)
 		return data.length!1;
 	}
 
-	ref const(T) opIndex(size_t i, size_t j) const
+	const(T) opIndex(size_t i, size_t j) const
 	{
 		if(implicitOne && i == j)
-			return one;
+			return T(1);
 
 		if((lower && i+offDiag < j) || (!lower && i > j+offDiag))
-			return zero;
+			return T(0);
 
 		return data[i,j];
-	}
-
-	static const(T) zero, one;
-
-	static this()
-	{
-		zero = T(0);
-		one = T(1);
 	}
 }
 
 struct DenseLU(T)
 {
-	ContiguousMatrix!(immutable(T)) m;
-	Permutation p;	// row permutation
+	Matrix!T m; // L and U matrix stored together
+	int[] p, pInv; // row permutation
 
-	this(Matrix!T _m)
+	this(ref const Matrix!T mat)
 	{
-		auto p = new int[_m.height];
-		auto m = _m.dup;
-		denseComputeLU!T(m, p);
-
-		this.m = (cast(immutable)m).toImmutable;
-		this.p = Permutation(p.assumeUnique);
+		m = mat.dup;
+		p = new int[m.height];
+		denseComputeLU!T(m[], p);
+		pInv = new int[m.height];
+		for(int i = 0; i < m.height; ++i)
+			pInv[p[i]] = i;
 	}
 
-	Matrix!T solve(Matrix!T b)
+	Matrix!T solve(ref const Matrix!T b)
 	{
-		auto rhs = b.dup(p);
-		denseSolveLU!T(m, rhs);
-		return Matrix!T((cast(immutable)rhs).toImmutable);
+		auto r = b.dup(p);
+		denseSolveLU!T(m[], r[]);
+		return r;
 	}
 
 	/** lower/left part of the decomposition */
-	auto l()
+	auto l() const
 	{
-		return TriangularMatrix!(T, true, true)(m);
+		return TriangularView!(T, true, true)(m[].toConst);
 	}
 
 	/** upper/right part of the decomposition */
-	auto u()
+	auto u() const
 	{
-		return TriangularMatrix!(T, false, false)(m);
+		return TriangularView!(T, false, false)(m[].toConst);
 	}
 
-	auto a()
+	/**
+	 * Reconstruct the original matrix from the decomposition.
+	 */
+	Matrix!T a()
 	{
-		return (l*u).permute(p.inverse);
+		return (Matrix!T(l)*Matrix!T(u)).dup(pInv);
 	}
 }
 
 struct DenseQR(T)
 {
-	ContiguousMatrix!(immutable(T)) m;
-	immutable(RealTypeOf!T)[] beta;
+	Matrix!T m;
+	RealTypeOf!T[] beta;
 
-	this(Matrix!T _m)
+	this(ref const Matrix!T mat)
 	{
-		auto beta = new RealTypeOf!T[_m.height];
-		auto m = _m.dup;
-
-		denseComputeQR!T(m, beta);
-
-		this.beta = beta.assumeUnique;
-		this.m = m.assumeUnique;
+		m = mat.dup;
+		beta = new RealTypeOf!T[m.height];
+		denseComputeQR!T(m[], beta);
 	}
 
-	Matrix!T solve(Matrix!T b)
+	Matrix!T solve(ref const Matrix!T b)
 	{
-		auto rhs = b.dup();
-		denseSolveQR!T(m, beta, rhs);
-		return Matrix!T(rhs.assumeUnique);
+		auto r = b.dup();
+		denseSolveQR!T(m[], beta, r[]);
+		return r;
 	}
 
 	auto q()
 	{
-		auto q = slice!T(beta.length, beta.length);
-		foreach(i, j, ref x; q)
-			x = i==j ? 1 : 0;
-
+		auto q = Matrix!T.identity(beta.length);
 		for(int k = cast(int)beta.length-1; k >= 0; --k)
-			applyHouseholder!T(q[k..$,0..$], m[k+1..$,k], beta[k]);
-
-		return Matrix!T(q.assumeUnique);
+			applyHouseholder!T(q[][k..$,0..$], m[][k+1..$,k], beta[k]);
+		return q;
 	}
 
 	auto r()
 	{
-		return TriangularMatrix!(T, false, false)(m);
+		return TriangularView!(T, false, false)(m[]);
 	}
 
-	auto a()
+	Matrix!T a()
 	{
-		return q*r;
+		return q*Matrix!T(r);
 	}
 }
 
 struct DenseHessenberg(T)
 {
-	ContiguousMatrix!(immutable(T)) m;
-	immutable(RealTypeOf!T)[] beta;
+	Matrix!T m;
+	RealTypeOf!T[] beta;
 
-	this(Matrix!T _m)
+	this(ref const Matrix!T mat)
 	{
-		auto beta = new RealTypeOf!T[_m.height];
-		auto m = _m.dup;
-
-		denseComputeHessenberg!T(m, beta);
-
-		this.beta = beta.assumeUnique;
-		this.m = m.assumeUnique;
+		m = mat.dup;
+		beta = new RealTypeOf!T[m.height];
+		denseComputeHessenberg!T(m[], beta);
 	}
 
 	auto q()
 	{
-		auto q = slice!T(beta.length, beta.length);
-		foreach(i, j, ref x; q)
-			x = i==j ? 1 : 0;
-
+		auto q = Matrix!T.identity(beta.length);
 		for(int k = cast(int)beta.length-2; k >= 0; --k)
-			applyHouseholder!T(q[k+1..$,0..$], m[k+2..$,k], beta[k]);
-
-		return Matrix!T(q.assumeUnique);
+			applyHouseholder!T(q[][k+1..$,0..$], m[][k+2..$,k], beta[k]);
+		return q;
 	}
 
 	auto h()
 	{
-		return TriangularMatrix!(T, false, false, 1)(m);
+		return TriangularView!(T, false, false, 1)(m[]);
 	}
 
-	auto a()
+	Matrix!T a()
 	{
-		return q*h*q.adjoint;
+		return q*Matrix!T(h)*Matrix!T(q.adjoint);
 	}
 }
 
@@ -559,19 +556,15 @@ struct DenseSchur(T)
 	Matrix!T u;
 	Matrix!T q;
 
-	this(Matrix!T _m)
+	this(ref const Matrix!T mat)
 	{
-		auto m = _m.dup;
-		auto q = slice!T(m.length!0, m.length!1);
-
-		denseComputeSchur!T(m, q);
-
-		this.u = Matrix!T(m.assumeUnique);
-		this.q = Matrix!T(q.assumeUnique);
+		u = mat.dup;
+		q = Matrix!T(u.height, u.width);
+		denseComputeSchur!T(u[], q[]);
 	}
 
-	auto a()
+	Matrix!T a()
 	{
-		return q*u*q.adjoint;
+		return q*u*Matrix!T(q.adjoint);
 	}
 }

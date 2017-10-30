@@ -7,7 +7,7 @@ module math.linear;
 import std.math;
 import std.traits;
 import std.complex;
-import std.algorithm;
+import std.algorithm : swap, min, max;
 import mir.ndslice;
 import jive.bitarray;
 import math.numerics;
@@ -29,7 +29,7 @@ Cholesky	A = LDL^T			only for Hermitian A
 //////////////////////////////////////////////////////////////////////
 
 /** compute LU decomposition of m inplace, put row permutation into p */
-void denseComputeLU(T)(ContiguousSlice!(2, T) m, int[] p)
+void denseComputeLU(T)(ContiguousMatrix!T m, int[] p)
 {
 	int n = cast(int)p.length;
 	if(m.length!0 != n || m.length!1 != n)
@@ -41,7 +41,7 @@ void denseComputeLU(T)(ContiguousSlice!(2, T) m, int[] p)
 	for(int k = 0; k < n; ++k)
 	{
 		// find a good pivot in column k
-		static if(isFloatingPoint!T)
+		static if(isFloatingPoint!T || is(T : Complex!R, R))
 		{
 			int pivot = k;
 			for(int i = k+1; i < n; ++i)
@@ -63,15 +63,13 @@ void denseComputeLU(T)(ContiguousSlice!(2, T) m, int[] p)
 
 		// swap the pivot row with row k
 		swap(p[k], p[pivot]);
-		for(int i = 0; i < n; ++i)
-			swap(m[k, i], m[pivot,i]);
+		each!swap(m[k], m[pivot]);
 
 		// eliminate all entries below the pivot (which is now in m[k,k])
 		for(int l = k+1; l < n; ++l)
 		{
-			m[l,k] /= m[k,k]; // this is now part of the L matrix
-			for(int i = k+1; i < n; ++i)
-				m[l,i] -= m[l,k] * m[k,i];
+			m[l, k] /= m[k, k]; // this is now part of the L matrix
+			m[l, k+1 .. n] -= m[l,k] * m[k, k+1 .. n];
 		}
 	}
 }
@@ -85,8 +83,7 @@ void denseSolveL(T)(ContiguousSlice!(2, const T) m, ContiguousSlice!(2, T) b)
 
 	for(int k = 0; k < n; ++k)
 		for(int l = k+1; l < n; ++l)
-			for(int i = 0; i < b.length!1; ++i)
-				b[l,i] -= m[l,k] * b[k,i];
+			b[l, 0..$] -= m[l,k] * b[k, 0..$];
 }
 
 /** solve linear equation of upper triangular matrix */
@@ -98,17 +95,15 @@ void denseSolveU(T)(ContiguousSlice!(2, const T) m, ContiguousSlice!(2, T) b)
 
 	for(int k = n-1; k >= 0; --k)
 	{
-		for(int i = 0; i < b.length!1; ++i)
-			b[k,i] /= m[k,k];
+		b[k, 0..$] /= m[k,k];
 
 		for(int l = k-1; l >= 0; --l)
-			for(int i = 0; i < b.length!1; ++i)
-				b[l,i] -= m[l,k] * b[k,i];
+			b[l, 0..$] -= m[l,k] * b[k, 0..$];
 	}
 }
 
 /** solve linear equation after LU decomposition was computed */
-void denseSolveLU(T)(ContiguousSlice!(2, const T) m, ContiguousSlice!(2, T) b)
+void denseSolveLU(T)(ContiguousMatrix!(const(T)) m, ContiguousMatrix!T b)
 {
 	int n = cast(int)m.length!0;
 	if(m.length!1 != n || b.length!0 != n)
@@ -123,47 +118,21 @@ void denseSolveLU(T)(ContiguousSlice!(2, const T) m, ContiguousSlice!(2, T) b)
 /// QR decomposition
 //////////////////////////////////////////////////////////////////////
 
-/** same as scalarProduct(v, v) */
-RealTypeOf!T norm2(T)(UniversalVector!(const(T)) a)
-{
-	RealTypeOf!T r = 0;
-	for(int i = 0; i < a.length; ++i)
-		r += sqAbs(a[i]);
-	return r;
-}
-
-/** scalar product of two vectors */
-T scalarProduct(T, bool conjugate = true)(UniversalVector!(const(T)) a, UniversalVector!(const(T)) b)
-{
-	if(a.length != b.length)
-		throw new Exception("vector dimension mismatch");
-
-	T r = 0;
-	for(int i = 0; i < a.length; ++i)
-		static if(conjugate)
-			r += conj(a[i])*b[i];
-		else
-			r += a[i]*b[i];
-	return r;
-}
-
 /** compute householder reflection inplace, returns beta factor */
 RealTypeOf!T makeHouseholder(T)(UniversalVector!T v)
 {
-	T c = -phase(v[0])*sqrt(norm2!T(v));
+	T c = -phase(v[0])*sqrt(sqNorm2(v));
 
-	if(c == 0)	// typically this indicate a singular matrix
-		return T(0);
-		//throw new Exception("zero in householder trafo");
+	if(c == 0) // typically this indicate a singular matrix
+		return RealTypeOf!T(0);
 
-	for(int i = 1; i < v.length; ++i)
-		v[i] /= v[0] - c;
+	v[1..$] /= v[0] - c;
 	v[0] = c;
-	return 2/(1 + norm2(v[1..$]));
+	return 2/(1 + sqNorm2(v[1..$]));
 }
 
 /** a = (1 - beta*|v><v|) * a */
-void applyHouseholder(T)(Slice2!T a, Slice!(const(T)) v, RealTypeOf!T beta)
+void applyHouseholder(T)(CanonicalMatrix!T a, UniversalVector!(const(T)) v, RealTypeOf!T beta)
 {
 	int n = cast(int)v.length!0+1;
 	if(a.length!0 != n)
@@ -171,15 +140,14 @@ void applyHouseholder(T)(Slice2!T a, Slice!(const(T)) v, RealTypeOf!T beta)
 
 	for(int k = 0; k < a.length!1; ++k)
 	{
-		T s = beta * (a[0,k] + scalarProduct(v, a[1..$,k]));
+		T s = beta * (a[0,k] + dot(v.conj, a[1..$,k]));
 		a[0, k] -= s;
-		for(int i = 1; i < n; ++i)
-			a[i, k] -= s * v[i-1];
+		a[1..n, k] -= s * v[0..n-1];
 	}
 }
 
 /** a = a * (1 - beta*|v><v|) */
-void applyHouseholderRight(T)(Slice2!T a, Slice!(const(T)) v, RealTypeOf!T beta)
+void applyHouseholderRight(T)(CanonicalMatrix!T a, UniversalVector!(const(T)) v, RealTypeOf!T beta)
 {
 	int n = cast(int)v.length!0+1;
 	if(a.length!1 != n)
@@ -187,10 +155,9 @@ void applyHouseholderRight(T)(Slice2!T a, Slice!(const(T)) v, RealTypeOf!T beta)
 
 	for(int k = 0; k < a.length!0; ++k)
 	{
-		T s = beta * (a[k,0] + scalarProduct!(T,false)(v, a[k,1..$]));
+		T s = beta * (a[k,0] + dot(v, a[k,1..$]));
 		a[k, 0] -= s;
-		for(int i = 1; i < n; ++i)
-			a[k, i] -= s * conj(v[i-1]);
+		a[k, 1..n] -= s * conj(v[0..n-1]);
 	}
 }
 
@@ -221,7 +188,7 @@ void makeGivens(T)(ref T a, ref T b, ref RealTypeOf!T c, ref T s)
 	}
 }
 
-void applyGivens(T)(Slice2!T m, int i, int j, RealTypeOf!T c, ref T s)
+void applyGivens(T)(UniversalMatrix!T m, int i, int j, RealTypeOf!T c, ref T s)
 {
 	for(int k = 0; k < m.length!1; ++k)
 	{
@@ -231,7 +198,7 @@ void applyGivens(T)(Slice2!T m, int i, int j, RealTypeOf!T c, ref T s)
 	}
 }
 
-void applyGivensRight(T)(Slice2!T m, int i, int j, RealTypeOf!T c, ref T s)
+void applyGivensRight(T)(UniversalMatrix!T m, int i, int j, RealTypeOf!T c, ref T s)
 {
 	for(int k = 0; k < m.length!1; ++k)
 	{
@@ -242,7 +209,7 @@ void applyGivensRight(T)(Slice2!T m, int i, int j, RealTypeOf!T c, ref T s)
 }
 
 /** compute QR decomposition of m inplace */
-void denseComputeQR(T)(Slice2!T m, RealTypeOf!T[] beta)
+void denseComputeQR(T)(ContiguousMatrix!T m, RealTypeOf!T[] beta)
 {
 	int n = cast(int)beta.length;
 	if(m.length!0 != n || m.length!1 != n)
@@ -259,7 +226,7 @@ void denseComputeQR(T)(Slice2!T m, RealTypeOf!T[] beta)
 }
 
 /** solve linear equation after QR decomposition was computed */
-void denseSolveQR(T)(Slice2!(const(T)) m, const(RealTypeOf!T)[] beta, Slice2!T b)
+void denseSolveQR(T)(ContiguousMatrix!(const(T)) m, const(RealTypeOf!T)[] beta, ContiguousMatrix!T b)
 {
 	int n = cast(int)beta.length;
 	if(m.length!0 != n || m.length!1 != n || b.length!0 != n)
@@ -272,7 +239,7 @@ void denseSolveQR(T)(Slice2!(const(T)) m, const(RealTypeOf!T)[] beta, Slice2!T b
 }
 
 /** compute Hessenberg decomposition of m inplace */
-void denseComputeHessenberg(T)(Slice2!T m, RealTypeOf!T[] beta)
+void denseComputeHessenberg(T)(ContiguousMatrix!T m, RealTypeOf!T[] beta)
 {
 	int n = cast(int)beta.length;
 	if(m.length!0 != n || m.length!1 != n)
@@ -281,7 +248,7 @@ void denseComputeHessenberg(T)(Slice2!T m, RealTypeOf!T[] beta)
 	for(int k = 0; k < n-1; ++k)
 	{
 		// make householder reflection for current column
-		beta[k] = makeHouseholder(m[k+1..$, k]);
+		beta[k] = makeHouseholder!T(m[k+1..$, k]);
 
 		// update remaining columns
 		applyHouseholder!T(m[k+1..$, k+1..$], m[k+2..$, k], beta[k]);
@@ -301,14 +268,15 @@ void denseComputeHessenberg(T)(Slice2!T m, RealTypeOf!T[] beta)
  *   - m is replaced by the triangular matrix U (diagonal in case of A being hermitian)
  *   - if A is real with complex eigenvalues, U is only block-triangular
  */
-void denseComputeSchur(T)(Slice2!T m, Slice2!T v = Slice2!T.init)
+void denseComputeSchur(T)(ContiguousMatrix!T m, ContiguousMatrix!T v = ContiguousMatrix!T.init)
 {
-	size_t n = m.length!0;
-	if(m.length!1 != n || v.ptr !is null && (v.length!0 != n || v.length!1 != n))
+	int n = cast(int)m.length!0;
+	bool trafo = v.length!0 != 0 || v.length!1 != 0;
+	if(m.length!1 != n || trafo && (v.length!0 != n || v.length!1 != n))
 		throw new Exception("matrix dimension mismatch");
 
 	// initialize q to identity matrix
-	if(v.ptr !is null)
+	if(trafo)
 		for(int j = 0; j < n; ++j)
 			for(int i = 0; i < n; ++i)
 				v[i,j] = i==j?T(1):T(0);
@@ -316,12 +284,11 @@ void denseComputeSchur(T)(Slice2!T m, Slice2!T v = Slice2!T.init)
 	// reduce m to Hessenberg matrix
 	auto alpha = new RealTypeOf!T[n];
 	denseComputeHessenberg!T(m, alpha);
-	if(v.ptr !is null)
+	if(trafo)
 		for(int i = 0; i < n-1; ++i)
 			applyHouseholderRight!T(v[0..$,i+1..$], m[i+2..$,i], alpha[i]);
 	for(int j = 0; j < n; ++j)
-		for(int i = j+2; i < n; ++i)
-			m[i,j] = T(0);
+		m[min(j+2,n)..n, j] = T(0);
 
 	// Francis algorithm
 	auto eps = 4*RealTypeOf!T.epsilon;
@@ -358,7 +325,7 @@ void denseComputeSchur(T)(Slice2!T m, Slice2!T v = Slice2!T.init)
 
 			// complex roots of real matrix -> leave the block as it is
 			// TODO: I think there is a normal-form for this case
-			if(!isComplex!T && root.im != 0)
+			if(is(T : Complex!R, R) && root.im != 0)
 			{
 				steps = 0;
 				b -= 2;
@@ -382,7 +349,7 @@ void denseComputeSchur(T)(Slice2!T m, Slice2!T v = Slice2!T.init)
 				m[i,a] -= beta*s*conj(x);
 				m[i,a+1] -= beta*s*conj(y);
 			}
-			if(v.ptr !is null)
+			if(trafo)
 			for(size_t i = 0; i < n; ++i)
 			{
 				auto s = x*v[i,a] + y*v[i,a+1];
@@ -391,8 +358,8 @@ void denseComputeSchur(T)(Slice2!T m, Slice2!T v = Slice2!T.init)
 			}
 
 			// In precise arithmetic, the current 2x2 block would be solved now.
-			// But that seems to be kinda. So don't decrease b, which means
-			// doing another step when neccessary. TODO: figure this out.
+			// But that seems to be unreliable in practice. So don't decrease b,
+			// which means doing another step when neccessary. TODO: figure this out.
 
 			//steps = 0;
 			//b -= 2;
@@ -412,28 +379,70 @@ void denseComputeSchur(T)(Slice2!T m, Slice2!T v = Slice2!T.init)
 		auto q = m[b-1,b-1]*m[b-2,b-2] - m[b-1,b-2]*m[b-2,b-1];
 
 		// first column of p(A)
-		auto x = Slice!T(3);
+		T[3] _x;
+		auto x = _x[].sliced(3);
 		x[0] = m[0,0]*m[0,0] + m[0,1]*m[1,0] + p*m[0,0] + q;
 		x[1] = m[1,0]*m[0,0] + m[1,1]*m[1,0] + p*m[1,0];
 		x[2] = m[2,1]*m[1,0];
 
 		// make a householder reflection of x (i.e. create the bulge)
-		auto beta = makeHouseholder(x);
-		applyHouseholder!T(m[0..3,0..$], x[1..$], beta);
-		applyHouseholderRight!T(m[0..min(4,$),0..3], x[1..$], beta);
-		if(v.ptr !is null)
-			applyHouseholderRight!T(v[0..$,0..3], x[1..$], beta);
+		auto beta = makeHouseholder!T(x.universal);
+		applyHouseholder!T(m[0..3,0..$], x[1..$].universal, beta);
+		applyHouseholderRight!T(m[0..min(4,$),0..3], x[1..$].universal, beta);
+		if(trafo)
+			applyHouseholderRight!T(v[0..$,0..3], x[1..$].universal, beta);
 
 		// make the matrix Hessenberg again (i.e. chase the bulge down)
 		for(int i = 0; i < n-2; ++i)
 		{
-			beta = makeHouseholder(m[i+1..min(i+4,$), i]);
+			beta = makeHouseholder!T(m[i+1..min(i+4,$), i]);
 			applyHouseholder!T(m[i+1..min(i+4,$),i+1..$], m[i+2..min(i+4,$),i], beta);
 			applyHouseholderRight!T(m[0..$,i+1..min(i+4,$)], m[i+2..min(i+4,$),i], beta);
-			if(v.ptr !is null)
+			if(trafo)
 				applyHouseholderRight!T(v[0..$,i+1..min(i+4,$)], m[i+2..min(i+4,$),i], beta);
-			for(int j = i+2; j < min(i+4,n); ++j)
-				m[j,i] = 0;
+			m[i+2 .. min(i+4,n), i] = T(0);
 		}
 	}
+}
+
+
+//////////////////////////////////////////////////////////////////////
+/// private helpers
+//////////////////////////////////////////////////////////////////////
+
+/** complex conjugate of a scalar */
+private T conj(T)(T x)
+	if(!isVector!T)
+{
+	static if(is(T : Complex!R, R))
+		return std.complex.conj(x);
+	else
+		return x;
+}
+
+/** complex conjugate of a vector */
+private auto conj(V)(V a)
+	if(isVector!V)
+{
+	alias T = DeepElementType!V;
+	static if(is(T : Complex!R, R))
+		return a.map!(std.complex.conj);
+	else
+		return a;
+}
+
+/** dot-product of two vectors without any complex conjugation */
+private auto dot(V,W)(V a, W b)
+	if(isVector!V && isVector!W)
+{
+	alias T = typeof(DeepElementType!V.init * DeepElementType!W.init);
+	return reduce!"a+b*c"(T(0), a, b);
+}
+
+/** same as dot(v.conj, v) */
+private RealTypeOf!(DeepElementType!V) sqNorm2(V)(V a)
+	if(isVector!V)
+{
+	alias R = RealTypeOf!(DeepElementType!V);
+	return R(0).reduce!"a+b"(a.map!(std.complex.sqAbs));
 }

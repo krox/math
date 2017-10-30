@@ -99,12 +99,6 @@ auto phase(T)(auto ref const T x)
 	}
 }
 
-T conj(T)(T x) pure nothrow
-	if(!is(T : Complex!R, R))
-{
-	return x;
-}
-
 /**
  * Compute roots of x^2 + px + q. Returns the root with larger magnitude.
  * The other one should be obtained as q/root, as this is numerically more
