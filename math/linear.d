@@ -25,7 +25,7 @@ Cholesky	A = LDL^T			only for Hermitian A
 */
 
 //////////////////////////////////////////////////////////////////////
-/// LU decomposition
+/// LU and LDL decomposition
 //////////////////////////////////////////////////////////////////////
 
 /** compute LU decomposition of m inplace, put row permutation into p */
@@ -74,32 +74,28 @@ void denseComputeLU(T)(ContiguousMatrix!T m, int[] p)
 	}
 }
 
-/** solve linear equation of lower triangular matrix with implicit 1's on diagonal */
-void denseSolveL(T)(ContiguousSlice!(2, const T) m, ContiguousSlice!(2, T) b)
+/** solve linear equation of lower triangular */
+void denseSolveL(T, bool implicitOne, M, B)(M m, B b)
+	if(isMatrix!M && isMatrix!B)
 {
 	int n = cast(int)m.length!0;
 	if(m.length!1 != n || b.length!0 != n)
 		throw new Exception("matrix dimension mismatch");
 
 	for(int k = 0; k < n; ++k)
+	{
+		static if(!implicitOne)
+			b[k, 0..$] /= m[k,k];
 		for(int l = k+1; l < n; ++l)
 			b[l, 0..$] -= m[l,k] * b[k, 0..$];
+	}
 }
 
 /** solve linear equation of upper triangular matrix */
-void denseSolveU(T)(ContiguousSlice!(2, const T) m, ContiguousSlice!(2, T) b)
+void denseSolveU(T, bool implicitOne, M, B)(M m, B b)
+	if(isMatrix!M && isMatrix!B)
 {
-	int n = cast(int)m.length!0;
-	if(m.length!1 != n || b.length!0 != n)
-		throw new Exception("matrix dimension mismatch");
-
-	for(int k = n-1; k >= 0; --k)
-	{
-		b[k, 0..$] /= m[k,k];
-
-		for(int l = k-1; l >= 0; --l)
-			b[l, 0..$] -= m[l,k] * b[k, 0..$];
-	}
+	denseSolveL!(T, implicitOne)(m.reversed!(0,1), b.reversed!0);
 }
 
 /** solve linear equation after LU decomposition was computed */
@@ -109,13 +105,46 @@ void denseSolveLU(T)(ContiguousMatrix!(const(T)) m, ContiguousMatrix!T b)
 	if(m.length!1 != n || b.length!0 != n)
 		throw new Exception("matrix dimension mismatch");
 
-	denseSolveL!T(m, b);
-	denseSolveU!T(m, b);
+	denseSolveL!(T,true)(m, b);
+	denseSolveU!(T,false)(m, b);
+}
+
+/** compute LDL^T decomposition inplace. Only uses lower triangle including diagonal */
+void denseComputeLDL(T)(ContiguousMatrix!T m)
+{
+	int n = cast(int)m.length!0;
+	if(m.length!1 != n)
+		throw new Exception("matrix dimension mismatch");
+
+	for(int j = 0; j < n; ++j)
+	{
+		for(int k = 0; k < j; ++k)
+			m[j,j] -= m[j,k].sqAbs * m[k,k];
+		for(int i = j+1; i < n; ++i)
+		{
+			for(int k = 0; k < j; ++k)
+				m[i,j] -= m[i,k]*m[j,k].conj*m[k,k];
+			m[i,j] /= m[j,j];
+		}
+	}
+}
+
+/** solve linear equation after LDL decomposition was computed */
+void denseSolveLDL(T)(ContiguousMatrix!(const(T)) m, ContiguousMatrix!T b)
+{
+	int n = cast(int)m.length!0;
+	if(m.length!1 != n || b.length!0 != n)
+		throw new Exception("matrix dimension mismatch");
+
+	denseSolveL!(T,true)(m, b);
+	for(int i = 0; i < n; ++i)
+		b[i, 0..$] /= m[i,i];
+	denseSolveU!(T,true)(m.adjoint, b);
 }
 
 
 //////////////////////////////////////////////////////////////////////
-/// QR decomposition
+/// QR and Hessenberg decomposition
 //////////////////////////////////////////////////////////////////////
 
 /** compute householder reflection inplace, returns beta factor */
@@ -132,7 +161,8 @@ RealTypeOf!T makeHouseholder(T)(UniversalVector!T v)
 }
 
 /** a = (1 - beta*|v><v|) * a */
-void applyHouseholder(T)(CanonicalMatrix!T a, UniversalVector!(const(T)) v, RealTypeOf!T beta)
+void applyHouseholder(T, A, V)(A a, V v, RealTypeOf!T beta)
+	if(isMatrix!A && isVector!V)
 {
 	int n = cast(int)v.length!0+1;
 	if(a.length!0 != n)
@@ -147,18 +177,10 @@ void applyHouseholder(T)(CanonicalMatrix!T a, UniversalVector!(const(T)) v, Real
 }
 
 /** a = a * (1 - beta*|v><v|) */
-void applyHouseholderRight(T)(CanonicalMatrix!T a, UniversalVector!(const(T)) v, RealTypeOf!T beta)
+void applyHouseholderRight(T, A, V)(A a, V v, RealTypeOf!T beta)
+	if(isMatrix!A && isVector!V)
 {
-	int n = cast(int)v.length!0+1;
-	if(a.length!1 != n)
-		throw new Exception("vector dimension mismatch");
-
-	for(int k = 0; k < a.length!0; ++k)
-	{
-		T s = beta * (a[k,0] + dot(v, a[k,1..$]));
-		a[k, 0] -= s;
-		a[k, 1..n] -= s * conj(v[0..n-1]);
-	}
+	applyHouseholder!T(a.transposed, v.conj, beta);
 }
 
 /** compute givens rotation */
@@ -235,7 +257,7 @@ void denseSolveQR(T)(ContiguousMatrix!(const(T)) m, const(RealTypeOf!T)[] beta, 
 	for(int k = 0; k < n; ++k)
 		applyHouseholder!T(b[k..$,0..$], m[k+1..$,k], beta[k]);
 
-	denseSolveU!T(m, b);
+	denseSolveU!(T,false)(m, b);
 }
 
 /** compute Hessenberg decomposition of m inplace */
@@ -429,6 +451,16 @@ private auto conj(V)(V a)
 		return a.map!(std.complex.conj);
 	else
 		return a;
+}
+
+/** adjoint of a matrix */
+private auto adjoint(M)(M a)
+{
+	alias T = DeepElementType!M;
+	static if(is(T : Complex!R, R))
+		return a.transposed.map!(std.complex.conj);
+	else
+		return a.transposed;
 }
 
 /** dot-product of two vectors without any complex conjugation */

@@ -296,9 +296,15 @@ struct Matrix(T)
 	}
 
 	/** compute LU decomposition */
-	DenseLU!(T) lu()()
+	DenseLU!T lu()()
 	{
 		return DenseLU!T(this);
+	}
+
+	/** compute LDL decomposition */
+	DenseLDL!T ldl()()
+	{
+		return DenseLDL!T(this);
 	}
 
 	/** compute QR decomposition */
@@ -479,6 +485,37 @@ struct DenseLU(T)
 	Matrix!T a()
 	{
 		return (Matrix!T(l)*Matrix!T(u)).dup(pInv);
+	}
+}
+
+struct DenseLDL(T)
+{
+	Matrix!T m; // uses only lower triangle
+
+	this(ref const Matrix!T mat)
+	{
+		m = mat.dup;
+		denseComputeLDL!T(m[]);
+	}
+
+	Matrix!T solve(ref const Matrix!T b)
+	{
+		auto r = b.dup;
+		denseSolveLDL!T(m[], r[]);
+		return r;
+	}
+
+	auto l() const
+	{
+		return TriangularView!(T, true, true)(m[].toConst);
+	}
+
+	Matrix!T a()
+	{
+		auto b = Matrix!T(Matrix!T(l).adjoint);
+		for(int i = 0; i < m.width; ++i)
+			b[][i, 0..$] *= m[i,i];
+		return Matrix!T(l)*b;
 	}
 }
 
