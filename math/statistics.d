@@ -107,20 +107,13 @@ struct Histogram
  * but numerically more stable.
  */
 struct Estimator(size_t N = 1)
-	if(N >= 1)
+	if(N >= 2)
 {
 	@nogc: nothrow: pure: @safe:
 
 	public double n = 0;
 	private double[N] avg = [0]; // = 1/n ∑ x_i
 	private double[N][N] sum2 = [[0]]; //= ∑ (x_i - meanX)*(y_i - meanY)
-
-	static if(N == 1)
-	this(const(double)[] xs)
-	{
-		foreach(x; xs)
-			add(x);
-	}
 
 	/** add a new data point */
 	void add(double[N] x...)
@@ -185,6 +178,75 @@ struct Estimator(size_t N = 1)
 		avg[] = 0;
 		foreach(ref s; sum2)
 			s[] = 0;
+	}
+}
+
+struct Estimator(size_t N = 1)
+	if(N == 1)
+{
+	@nogc: nothrow: pure: @safe:
+
+	public double n = 0;
+	private double avg = 0;
+	private double m2 = 0;
+	private double m3 = 0;
+	private double m4 = 0;
+
+	this(const(double)[] xs)
+	{
+		foreach(x; xs)
+			add(x);
+	}
+
+	/** add a new data point */
+	void add(double x)
+	{
+		n += 1;
+		double dx = x - avg;
+		double dxn = dx/n;
+		avg += dxn;
+		m4 += dx*dxn*dxn*dxn*(n-1)*(n*n-3*n+3) + dxn*dxn*6*m2 - dxn*4*m3;
+		m3 += dx*dxn*dxn*(n-1)*(n-2) - dxn*3*m2;
+		m2 += dxn*dx*(n-1);
+	}
+
+	/** mean */
+	Var mean() const @property
+	{
+		if(n < 2)
+			return Var(avg, double.infinity);
+		return Var(avg, var/n);
+	}
+
+	/** variance */
+	double var() const @property
+	{
+		// NOTE: this is not the sample-variance, but an estimator of the population variance
+		if(n < 2)
+			return double.nan;
+		return m2/(n-1);
+	}
+
+	/** skewness */
+	double skew() const @property
+	{
+		return sqrt(n)*m3/pow(m2, 1.5);
+	}
+
+	/** excess kurtosis */
+	double kurt() const @property
+	{
+		return n*m4/(m2*m2) - 3;
+	}
+
+	/** reset everything */
+	void clear()
+	{
+		n = 0;
+		avg = 0;
+		m2 = 0;
+		m3 = 0;
+		m4 = 0;
 	}
 }
 
