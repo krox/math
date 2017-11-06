@@ -148,7 +148,8 @@ void denseSolveLDL(T)(ContiguousMatrix!(const(T)) m, ContiguousMatrix!T b)
 //////////////////////////////////////////////////////////////////////
 
 /** compute householder reflection inplace, returns beta factor */
-RealTypeOf!T makeHouseholder(T)(UniversalVector!T v)
+RealTypeOf!T makeHouseholder(T, V)(V v)
+	if(isVector!V)
 {
 	T c = -phase(v[0])*sqrt(sqNorm2(v));
 
@@ -297,18 +298,13 @@ void denseComputeSchur(T)(ContiguousMatrix!T m, ContiguousMatrix!T v = Contiguou
 	if(m.length!1 != n || trafo && (v.length!0 != n || v.length!1 != n))
 		throw new Exception("matrix dimension mismatch");
 
-	// initialize q to identity matrix
-	if(trafo)
-		for(int j = 0; j < n; ++j)
-			for(int i = 0; i < n; ++i)
-				v[i,j] = i==j?T(1):T(0);
-
 	// reduce m to Hessenberg matrix
 	auto alpha = new RealTypeOf!T[n];
 	denseComputeHessenberg!T(m, alpha);
 	if(trafo)
 		for(int i = 0; i < n-1; ++i)
 			applyHouseholderRight!T(v[0..$,i+1..$], m[i+2..$,i], alpha[i]);
+	delete alpha;
 	for(int j = 0; j < n; ++j)
 		m[min(j+2,n)..n, j] = T(0);
 
@@ -347,7 +343,7 @@ void denseComputeSchur(T)(ContiguousMatrix!T m, ContiguousMatrix!T v = Contiguou
 
 			// complex roots of real matrix -> leave the block as it is
 			// TODO: I think there is a normal-form for this case
-			if(is(T : Complex!R, R) && root.im != 0)
+			if(!is(T : Complex!R, R) && root.im != 0)
 			{
 				steps = 0;
 				b -= 2;
@@ -408,11 +404,11 @@ void denseComputeSchur(T)(ContiguousMatrix!T m, ContiguousMatrix!T v = Contiguou
 		x[2] = m[2,1]*m[1,0];
 
 		// make a householder reflection of x (i.e. create the bulge)
-		auto beta = makeHouseholder!T(x.universal);
-		applyHouseholder!T(m[0..3,0..$], x[1..$].universal, beta);
-		applyHouseholderRight!T(m[0..min(4,$),0..3], x[1..$].universal, beta);
+		auto beta = makeHouseholder!T(x);
+		applyHouseholder!T(m[0..3,0..$], x[1..$], beta);
+		applyHouseholderRight!T(m[0..min(4,$),0..3], x[1..$], beta);
 		if(trafo)
-			applyHouseholderRight!T(v[0..$,0..3], x[1..$].universal, beta);
+			applyHouseholderRight!T(v[0..$,0..3], x[1..$], beta);
 
 		// make the matrix Hessenberg again (i.e. chase the bulge down)
 		for(int i = 0; i < n-2; ++i)

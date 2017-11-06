@@ -596,7 +596,7 @@ struct DenseSchur(T)
 	this(ref const Matrix!T mat)
 	{
 		u = mat.dup;
-		q = Matrix!T(u.height, u.width);
+		q = Matrix!T.identity(u.height);
 		denseComputeSchur!T(u[], q[]);
 	}
 
