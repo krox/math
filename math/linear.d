@@ -28,12 +28,16 @@ Cholesky	A = LDL^T			only for Hermitian A
 /// LU and LDL decomposition
 //////////////////////////////////////////////////////////////////////
 
-/** compute LU decomposition of m inplace, put row permutation into p */
+/**
+ * Compute LU decomposition with partial pivoting of m inplace.
+ *  - m is replaced by L and U matrices (L has implicit ones on diagonal)
+ *  - row permutation is put into p
+ */
 void denseComputeLU(T)(ContiguousMatrix!T m, int[] p)
 {
 	int n = cast(int)p.length;
 	if(m.length!0 != n || m.length!1 != n)
-		throw new Exception("matrix dimension mismatch");
+		throw new MatrixDimensionMismatch;
 
 	for(int i = 0; i < n; ++i)
 		p[i] = i;
@@ -74,13 +78,61 @@ void denseComputeLU(T)(ContiguousMatrix!T m, int[] p)
 	}
 }
 
+/**
+ * Compute LU decomposition with full pivoting of m inplace.
+ *  - m is replaced by L and U matrices (L has implicit ones on diagonal)
+ *  - row and column permutations are put into p and q
+ */
+void denseComputeLUP(T)(ContiguousMatrix!T m, int[] p, int[] q)
+{
+	int n = cast(int)p.length;
+	if(q.length != n || m.length!0 != n || m.length!1 != n)
+		throw new MatrixDimensionMismatch;
+
+	for(int i = 0; i < n; ++i)
+		p[i] = q[i] = i;
+
+	for(int k = 0; k < n; ++k)
+	{
+		// find a good pivot
+		int pivotRow = -1;
+		int pivotCol = -1;
+		T pivot = T(0);
+
+		for(int i = k; i < n; ++i)
+			for(int j = k; j < n; ++j)
+				if(abs(m[i,j]) > abs(pivot))
+				{
+					pivot = m[i,j];
+					pivotRow = i;
+					pivotCol = j;
+				}
+
+		if(pivotRow == -1)
+			throw new Exception("matrix not invertible");
+
+		// swap the pivot row/column with row/column k
+		swap(p[k], p[pivotRow]);
+		swap(q[k], q[pivotCol]);
+		each!swap(m[k,0..$], m[pivotRow,0..$]);
+		each!swap(m[0..$,k], m[0..$,pivotCol]);
+
+		// eliminate all entries below the pivot (which is now in m[k,k])
+		for(int l = k+1; l < n; ++l)
+		{
+			m[l, k] /= pivot; // this is now part of the L matrix
+			m[l, k+1 .. n] -= m[l,k] * m[k, k+1 .. n];
+		}
+	}
+}
+
 /** solve linear equation of lower triangular */
 void denseSolveL(T, bool implicitOne, M, B)(M m, B b)
 	if(isMatrix!M && isMatrix!B)
 {
 	int n = cast(int)m.length!0;
 	if(m.length!1 != n || b.length!0 != n)
-		throw new Exception("matrix dimension mismatch");
+		throw new MatrixDimensionMismatch;
 
 	for(int k = 0; k < n; ++k)
 	{
@@ -103,7 +155,7 @@ void denseSolveLU(T)(ContiguousMatrix!(const(T)) m, ContiguousMatrix!T b)
 {
 	int n = cast(int)m.length!0;
 	if(m.length!1 != n || b.length!0 != n)
-		throw new Exception("matrix dimension mismatch");
+		throw new MatrixDimensionMismatch;
 
 	denseSolveL!(T,true)(m, b);
 	denseSolveU!(T,false)(m, b);
@@ -114,7 +166,7 @@ void denseComputeLDL(T)(ContiguousMatrix!T m)
 {
 	int n = cast(int)m.length!0;
 	if(m.length!1 != n)
-		throw new Exception("matrix dimension mismatch");
+		throw new MatrixDimensionMismatch;
 
 	for(int j = 0; j < n; ++j)
 	{
@@ -134,7 +186,7 @@ void denseSolveLDL(T)(ContiguousMatrix!(const(T)) m, ContiguousMatrix!T b)
 {
 	int n = cast(int)m.length!0;
 	if(m.length!1 != n || b.length!0 != n)
-		throw new Exception("matrix dimension mismatch");
+		throw new MatrixDimensionMismatch;
 
 	denseSolveL!(T,true)(m, b);
 	for(int i = 0; i < n; ++i)
@@ -236,7 +288,7 @@ void denseComputeQR(T)(ContiguousMatrix!T m, RealTypeOf!T[] beta)
 {
 	int n = cast(int)beta.length;
 	if(m.length!0 != n || m.length!1 != n)
-		throw new Exception("matrix dimension mismatch");
+		throw new MatrixDimensionMismatch;
 
 	for(int k = 0; k < n; ++k)
 	{
@@ -253,7 +305,7 @@ void denseSolveQR(T)(ContiguousMatrix!(const(T)) m, const(RealTypeOf!T)[] beta, 
 {
 	int n = cast(int)beta.length;
 	if(m.length!0 != n || m.length!1 != n || b.length!0 != n)
-		throw new Exception("matrix dimension mismatch");
+		throw new MatrixDimensionMismatch;
 
 	for(int k = 0; k < n; ++k)
 		applyHouseholder!T(b[k..$,0..$], m[k+1..$,k], beta[k]);
@@ -266,7 +318,7 @@ void denseComputeHessenberg(T)(ContiguousMatrix!T m, RealTypeOf!T[] beta)
 {
 	int n = cast(int)beta.length;
 	if(m.length!0 != n || m.length!1 != n)
-		throw new Exception("matrix dimension mismatch");
+		throw new MatrixDimensionMismatch;
 
 	for(int k = 0; k < n-1; ++k)
 	{
@@ -296,7 +348,7 @@ void denseComputeSchur(T)(ContiguousMatrix!T m, ContiguousMatrix!T v = Contiguou
 	int n = cast(int)m.length!0;
 	bool trafo = v.length!0 != 0 || v.length!1 != 0;
 	if(m.length!1 != n || trafo && (v.length!0 != n || v.length!1 != n))
-		throw new Exception("matrix dimension mismatch");
+		throw new MatrixDimensionMismatch;
 
 	// reduce m to Hessenberg matrix
 	auto alpha = new RealTypeOf!T[n];
@@ -420,6 +472,14 @@ void denseComputeSchur(T)(ContiguousMatrix!T m, ContiguousMatrix!T v = Contiguou
 				applyHouseholderRight!T(v[0..$,i+1..min(i+4,$)], m[i+2..min(i+4,$),i], beta);
 			m[i+2 .. min(i+4,n), i] = T(0);
 		}
+	}
+}
+
+class MatrixDimensionMismatch : Exception
+{
+	this()
+	{
+		super("matrix dimension mismatch");
 	}
 }
 

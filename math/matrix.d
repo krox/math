@@ -301,6 +301,11 @@ struct Matrix(T)
 		return DenseLU!T(this);
 	}
 
+	DenseLUP!T lup()()
+	{
+		return DenseLUP!T(this);
+	}
+
 	/** compute LDL decomposition */
 	DenseLDL!T ldl()()
 	{
@@ -485,6 +490,52 @@ struct DenseLU(T)
 	Matrix!T a()
 	{
 		return (Matrix!T(l)*Matrix!T(u)).dup(pInv);
+	}
+}
+
+struct DenseLUP(T)
+{
+	Matrix!T m; // L and U matrix stored together
+	int[] p, pInv; // row permutation
+	int[] q, qInv; // column permutation
+
+	this(ref const Matrix!T mat)
+	{
+		m = mat.dup;
+		p = new int[m.height];
+		q = new int[m.height];
+		denseComputeLUP!T(m[], p, q);
+		pInv = new int[m.height];
+		qInv = new int[m.height];
+		for(int i = 0; i < m.height; ++i)
+			pInv[p[i]] = qInv[q[i]] = i;
+	}
+
+	Matrix!T solve(ref const Matrix!T b)
+	{
+		auto r = b.dup(p);
+		denseSolveLU!T(m[], r[]);
+		return r.dup(qInv);
+	}
+
+	/** lower/left part of the decomposition */
+	auto l() const
+	{
+		return TriangularView!(T, true, true)(m[].toConst);
+	}
+
+	/** upper/right part of the decomposition */
+	auto u() const
+	{
+		return TriangularView!(T, false, false)(m[].toConst);
+	}
+
+	/**
+	 * Reconstruct the original matrix from the decomposition.
+	 */
+	Matrix!T a()
+	{
+		return (Matrix!T(l)*Matrix!T(u)).dup(pInv, qInv);
 	}
 }
 
