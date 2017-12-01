@@ -300,6 +300,43 @@ void denseComputeQR(T)(ContiguousMatrix!T m, RealTypeOf!T[] beta)
 	}
 }
 
+/** compute QR decomposition with pivoting of m inplace */
+void denseComputeQRP(T)(ContiguousMatrix!T m, RealTypeOf!T[] beta, int[] p)
+{
+	int n = cast(int)beta.length;
+	if(p.length != n || m.length!0 != n || m.length!1 != n)
+		throw new MatrixDimensionMismatch;
+
+	for(int i = 0; i < n; ++i)
+		p[i] = i;
+
+	for(int k = 0; k < n; ++k)
+	{
+		// look for best column
+		int pivot = -1;
+		RealTypeOf!T best = 0;
+		for(int i = k; i < n; ++i)
+		{
+			auto len = sqNorm2(m[k..$,i]);
+			if(len > best)
+			{
+				pivot = i;
+				best = len;
+			}
+		}
+
+		// swap best column into column k
+		swap(p[k], p[pivot]);
+		each!swap(m[0..$,k], m[0..$,pivot]);
+
+		// make householder reflection for current column
+		beta[k] = makeHouseholder!T(m[k..$, k]);
+
+		// update remaining columns
+		applyHouseholder!T(m[k..$, k+1..$], m[k+1..$, k], beta[k]);
+	}
+}
+
 /** solve linear equation after QR decomposition was computed */
 void denseSolveQR(T)(ContiguousMatrix!(const(T)) m, const(RealTypeOf!T)[] beta, ContiguousMatrix!T b)
 {

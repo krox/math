@@ -1,20 +1,25 @@
 module math.matrix;
 
-private import std.traits;
-private import std.conv : to;
-private import std.exception : assumeUnique;
-private import std.typecons;
-private import std.math;
-private import std.complex;
-private import std.functional : binaryFun;
-private import std.algorithm : min, max;
-private import std.random : uniform;
-private import std.format;
+import std.traits;
+import std.conv : to;
+import std.exception : assumeUnique;
+import std.typecons;
+import std.math;
+import std.complex;
+import std.functional : binaryFun;
+import std.algorithm : min, max;
+import std.random : uniform;
+import std.format;
 
-private import mir.ndslice;
-private import math.linear;
-private import math.numerics;
+import jive.array;
+import jive.bitarray;
+
+import mir.ndslice;
 import mir.random;
+
+import math.linear;
+import math.numerics;
+
 
 /**
  * Dense matrix stored in a (row-major) contigous chunk of memory.
@@ -188,6 +193,52 @@ struct Matrix(T)
 		return r;
 	}
 
+	/** permute rows inplace */
+	void permuteRows(const(int)[] p)
+	{
+		auto done = BitArray(height);
+		auto _tmp = Array!T(width);
+		auto tmp = _tmp[].sliced(width);
+		for(int start = 0; start < height; ++start)
+		{
+			if(done[start] || p[start] == start)
+				continue;
+
+			tmp[] = data[start, 0..$];
+			int i;
+			for(i = start; p[i] != start; i = p[i])
+			{
+				data[i, 0..$] = data[p[i], 0..$];
+				done[p[i]] = true;
+			}
+			data[i, 0..$] = tmp[];
+		}
+	}
+
+	/** permute columns inplace */
+	void permuteCols(const(int)[] p)
+	{
+		auto done = BitArray(width);
+		for(int row = 0; row < height; ++row)
+		{
+			done.reset();
+			for(int start = 0; start < width; ++start)
+			{
+				if(done[start] || p[start] == start)
+					continue;
+
+				auto tmp = data[row, start];
+				int i;
+				for(i = start; p[i] != start; i = p[i])
+				{
+					data[row, i] = data[row, p[i]];
+					done[p[i]] = true;
+				}
+				data[row, i] = tmp;
+			}
+		}
+	}
+
 	/** Matrix * / scalar */
 	Matrix opBinary(string op, S)(auto ref S b) const
 		if((op == "*" || op == "/") && is(typeof(T(b))))
@@ -316,6 +367,11 @@ struct Matrix(T)
 	DenseQR!T qr()()
 	{
 		return DenseQR!T(this);
+	}
+
+	DenseQRP!T qrp()()
+	{
+		return DenseQRP!T(this);
 	}
 
 	DenseHessenberg!T hessenberg()()
@@ -489,7 +545,9 @@ struct DenseLU(T)
 	 */
 	Matrix!T a()
 	{
-		return (Matrix!T(l)*Matrix!T(u)).dup(pInv);
+		auto r = Matrix!T(l)*Matrix!T(u);
+		r.permuteRows(pInv);
+		return r;
 	}
 }
 
@@ -605,6 +663,51 @@ struct DenseQR(T)
 	Matrix!T a()
 	{
 		return q*Matrix!T(r);
+	}
+}
+
+struct DenseQRP(T)
+{
+	Matrix!T m;
+	RealTypeOf!T[] beta;
+	int[] p, pInv;
+
+	this(ref const Matrix!T mat)
+	{
+		m = mat.dup;
+		beta = new RealTypeOf!T[m.height];
+		p = new int[m.height];
+		pInv = new int[m.height];
+		denseComputeQRP!T(m[], beta, p);
+		for(int i = 0; i < m.height; ++i)
+			pInv[p[i]] = i;
+	}
+
+	Matrix!T solve(ref const Matrix!T b)
+	{
+		auto r = b.dup();
+		denseSolveQR!T(m[], beta, r[]);
+		return r.dup(pInv);
+	}
+
+	auto q()
+	{
+		auto q = Matrix!T.identity(beta.length);
+		for(int k = cast(int)beta.length-1; k >= 0; --k)
+			applyHouseholder!T(q[][k..$,0..$], m[][k+1..$,k], beta[k]);
+		return q;
+	}
+
+	auto r()
+	{
+		return TriangularView!(T, false, false)(m[]);
+	}
+
+	Matrix!T a()
+	{
+		auto r = q*Matrix!T(r);
+		r.permuteCols(pInv);
+		return r;
 	}
 }
 
