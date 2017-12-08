@@ -46,7 +46,7 @@ struct Histogram
         a -= 0.0001*(b-a);
         b += 0.0001*(b-a);
 
-        this(a, b, std.algorithm.min(std.algorithm.max(xs.length/10, 5), 50));
+        this(a, b, std.algorithm.min(std.algorithm.max(cast(int)sqrt(cast(float)xs.length), 5), 200));
 
         foreach(x; xs)
             add(x);

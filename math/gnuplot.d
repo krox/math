@@ -45,7 +45,7 @@ class Gnuplot
 			xs[i] = a + (b-a)/(n-1)*i;
 			ys[i] = fun(xs[i]);
 		}
-		plotData(xs[], ys[], title);
+		plotData(xs[], ys[], title, "lines");
 	}
 
 	/** plot raw data points (xs[i], ys[i]) */
@@ -124,7 +124,7 @@ class Gnuplot
 			f.writef("%s %s\n", x, y);
 		f.close;
 
-		pipe.writef("%s '%s' using 2:xticlabels(1) with histogram title \"%s\"\n",
+		pipe.writef("%s '%s' using 1:2 with points title \"%s\"\n",
 			nplots?"replot":"plot", filename, title?title:"histogram");
 		pipe.flush();
 		nplots++;
