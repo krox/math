@@ -10,15 +10,13 @@ import math.integration;
 /**
  * Random variable with arbitrary prabability density.
  */
-struct Sampler(F)
+class Sampler(F)
 {
 	F f; // probability density
 	int n;
 	double a, b; // boundaries
 	Array!double xs;
 	Array!double mins, maxs;
-
-	@disable this(this);
 
 	this(F f, double a, double b, int n, double eps = 1.0e-12, int maxIter = 100)
 	{
