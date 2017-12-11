@@ -45,7 +45,7 @@ class Sampler(F)
 			for(int i = 0; i < n; ++i)
 			{
 				assert(xs[i] < xs[i+1]);
-				area[i] = integrateGL(f, xs[i], xs[i+1], 19);
+				area[i] = integrateGK(f, xs[i], xs[i+1]);
 				assert(area[i] > 0);
 				norm += area[i];
 			}
@@ -58,21 +58,32 @@ class Sampler(F)
 			if(iter > maxIter)
 				throw new Exception("Sampler grid did not converge.");
 
-
-			int j = 1;
-			double sum = 0;
-			for(int i = 0; i < n && j < n; ++i)
+			if(error > 0.01)
 			{
-				while(j*norm/n < sum+area[i] && j < n)
+				int j = 1;
+				double sum = 0;
+				for(int i = 0; i < n && j < n; ++i)
 				{
-					ys[j] = xs[i] + (xs[i+1]-xs[i])* (j*norm/n - sum) / area[i];
-					ys[j] = max(ys[j], a);
-					ys[j] = min(ys[j], b);
-					++j;
+					while(j*norm/n < sum+area[i] && j < n)
+					{
+						ys[j] = xs[i] + (xs[i+1]-xs[i])* (j*norm/n - sum) / area[i];
+						ys[j] = max(ys[j], a);
+						ys[j] = min(ys[j], b);
+						++j;
+					}
+					sum += area[i];
 				}
-				sum += area[i];
+				assert(j==n);
 			}
-			assert(j==n);
+			else
+			{
+				double sum = 0;
+				for(int i = 1; i < n; ++i)
+				{
+					sum += area[i-1];
+					ys[i] = xs[i] + (norm/n*i-sum)/f(xs[i]);
+				}
+			}
 
 			swap(xs,ys);
 		}
