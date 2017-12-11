@@ -4,23 +4,26 @@ import std.algorithm;
 import std.math;
 import jive.array;
 import mir.random;
+import math.solve;
 import math.integration;
 
 
 /**
  * Random variable with arbitrary prabability density.
  */
-class Sampler(F)
+class Sampler(F, FD)
 {
 	F f; // probability density
+	FD fd;
 	int n;
 	double a, b; // boundaries
 	Array!double xs;
 	Array!double mins, maxs;
 
-	this(F f, double a, double b, int n, double eps = 1.0e-12, int maxIter = 100)
+	this(F f, FD fd, double a, double b, int n, double eps = 1.0e-12, int maxIter = 100)
 	{
 		this.f = f;
+		this.fd = fd;
 		this.a = a;
 		this.b = b;
 		this.n = n;
@@ -93,8 +96,10 @@ class Sampler(F)
 		maxs.resize(n);
 		for(int i = 0; i < n; ++i)
 		{
-			mins[i] = minimize(f, xs[i], xs[i+1]);
-			maxs[i] = maximize(f, xs[i], xs[i+1]);
+			// NOTE: a little leeway here does not impact correctness,
+			// but only decreases performance slightly.
+			mins[i] = minimize(f, fd, xs[i], xs[i+1])*0.99999;
+			maxs[i] = maximize(f, fd, xs[i], xs[i+1])*1.00001;
 		}
 	}
 
@@ -106,7 +111,7 @@ class Sampler(F)
 		if(isSaturatedRandomEngine!Rng)
 	{
 		int i = randIndex(rng, cast(uint)n);
-		while(true)
+		for(int hit = 0; hit < 50; ++hit)
 		{
 			++nTries;
 			double x = xs[i] + (xs[i+1]-xs[i])*rand!double(rng).abs;
@@ -126,6 +131,10 @@ class Sampler(F)
 				return x;
 			}
 		}
+
+		// good samplers will have acc-probs of 0.9 to 0.99, so 50 rejected
+		// hits in a row are a very strong sign that something is wrong
+		throw new Exception("Sampler could not generate a new random number.");
 	}
 
 	double accProb() const @property
@@ -159,49 +168,20 @@ class Sampler(F)
 	}
 }
 
-// bisection-style minimizer that works for monotone and concave functions
-private double minimize(F)(F f, double a, double b, double sign = 1)
+// minimizer for monotone/convex/concave functions
+private double minimize(F, FD)(F f, FD fd, double a, double b, double sign = 1)
 {
 	assert(a < b);
-	const double eps = (b-a)*1.0e-10;
-
-	double m = 0.5*(a+b);
-	double fa = sign*f(a);
-	double fb = sign*f(b);
-	double fm = sign*f(m);
-
-	while(b-a > eps)
+	double r = min(sign*f(a), sign*f(b));
+	if(fd(a)*fd(b) <= 0)
 	{
-		double m2;
-		if(m-a > b-m) // split left
-			m2 = 0.5*(a+m);
-		else // split right
-			m2 = 0.5*(m+b);
-		double fm2 = sign*f(m2);
-		if(m2 < m)
-		{
-			swap(m, m2);
-			swap(fm, fm2);
-		}
-
-		assert(a < m && m < m2 && m2 < b);
-		if(fm < fm2)
-		{
-			b = m2;
-			fb = fm2;
-		}
-		else
-		{
-			a = m;
-			fa = fm;
-			m = m2;
-			fm = fm2;
-		}
+		double m = solve!(double, x=>fd(x))(a,b);
+		r = min(r, sign*f(m));
 	}
-	return fm/sign;
+	return r;
 }
 
-private double maximize(F)(F f, double a, double b, double sign = 1)
+private double maximize(F, FD)(F f, FD fd, double a, double b, double sign = 1)
 {
-	return minimize!F(f,a,b,-sign);
+	return minimize!F(f,fd,a,b,-sign);
 }
