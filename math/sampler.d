@@ -178,7 +178,7 @@ private double minimize(F, FD)(F f, FD fd, double a, double b, double sign = 1)
 		double m = solve!(double, x=>fd(x))(a,b);
 		r = min(r, sign*f(m));
 	}
-	return r;
+	return r/sign;
 }
 
 private double maximize(F, FD)(F f, FD fd, double a, double b, double sign = 1)
