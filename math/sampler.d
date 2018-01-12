@@ -1,106 +1,117 @@
 module math.sampler;
 
 import std.algorithm;
+import std.range;
 import std.math;
 import jive.array;
 import mir.random;
 import math.solve;
 import math.integration;
 
-
 /**
- * Random variable with arbitrary prabability density.
+ * Adaptive Rejection Sampler for (nearly) arbitrary (log-) distributions.
  */
-class Sampler(F, FD)
+class LogSampler(F, FD, FDD)
 {
-	F f; // probability density
-	FD fd;
-	int n;
-	double a, b; // boundaries
-	Array!double xs;
-	Array!double mins, maxs;
+	F f; // log-probability density
+	FD fd; // first derivative of f
+	FDD fdd; // second derivative of f
 
-	this(F f, FD fd, double a, double b, int n, double eps = 1.0e-12, int maxIter = 100)
+	int maxRegs; // maximum number of regions to create
+
+	double a, b;
+	Array!Region regs; // generally un-ordered
+
+	Array!double sums;
+
+	static struct Region
 	{
-		this.f = f;
-		this.fd = fd;
+		double a, b; // left/right bounds of region
+
+		// upper/lower bound of f in the interval [a,b]
+		// alpha + beta*x >= f(a+x(b-a)) >= gamma + delta*x
+		double alpha, beta;
+		double gamma, delta;
+
+		/** area of upper bound */
+		double area()
+		{
+			return (b-a)/beta*exp(alpha)*expm1(beta);
+		}
+	}
+
+	private Region makeRegion(double a, double b)
+	{
+		assert(a < b);
+		Region r;
+		r.a = a;
+		r.b = b;
+
+		// secant through endpoints
+		r.alpha = f(a);
+		r.beta = f(b) - f(a);
+		if(r.alpha == -double.infinity)
+			r.beta = 0;
+
+		// tangent to midpoint
+		r.delta = fd(0.5*(a+b))*(b-a);
+		r.gamma = f(0.5*(a+b)) - 0.5*r.delta;
+
+		if(r.alpha < r.gamma)
+		{
+			swap(r.alpha, r.gamma);
+			swap(r.beta, r.delta);
+		}
+
+		assert(r.alpha >= r.gamma);
+		assert(r.alpha + r.beta >= r.gamma + r.delta);
+		return r;
+	}
+
+	private void makePartialSums()
+	{
+		sums.resize(regs.length);
+		double sum = 0;
+		for(int i = 0; i < regs.length; ++i)
+		{
+			sum += regs[i].area;
+			sums[i] = sum;
+		}
+	}
+
+	this(F f, FD fd, FDD fdd, double a, double b, int maxRegs = 50)
+	{
+		assert(a < b);
 		this.a = a;
 		this.b = b;
-		this.n = n;
+		this.f = f;
+		this.fd = fd;
+		this.fdd = fdd;
+		this.maxRegs = maxRegs;
 
-		// initial equidistant subdivision
-		xs.resize(n+1);
-		xs[0] = a;
-		xs[$-1] = b;
-		for(int i = 1; i < n; ++i)
-			xs[i] = a+(b-a)/n*i;
+		Array!double xs;
+		Array!double fddxs;
 
-		// adapt the grid multiple times
-		auto area = Array!double(n);
-		auto ys = Array!double(n+1);
-		ys[0] = a;
-		ys[$-1] = b;
-		for(int iter = 0; ; ++iter)
-		{
-			double norm = 0;
-			assert(xs[0] == a && xs[$-1] == b);
+		// sample f at 100 points
+		xs.pushBack(a);
+		for(int i = 1; i < 99; ++i)
+			xs.pushBack(a+(b-a)*i/99);
+		xs.pushBack(b);
+		for(int i = 0; i < xs.length; ++i)
+			fddxs.pushBack(fdd(xs[i]));
 
-			for(int i = 0; i < n; ++i)
-			{
-				assert(xs[i] < xs[i+1]);
-				area[i] = integrateGK(f, xs[i], xs[i+1]);
-				assert(area[i] > 0);
-				norm += area[i];
-			}
+		// find inflection points to use as initial region bounds
+		Array!double ys;
+		ys.pushBack(xs[0]);
+		for(int i = 1; i < xs.length; ++i)
+			if(fddxs[i-1] * fddxs[i] < 0)
+				ys.pushBack(solve!(double, x=>fdd(x))(xs[i-1], xs[i]));
+		ys.pushBack(xs[$-1]);
 
-			double error = 0;
-			for(int i = 0; i < n; ++i)
-				error = max(error, abs(area[i]*n/norm-1));
-			if(error < eps)
-				break;
-			if(iter > maxIter)
-				throw new Exception("Sampler grid did not converge.");
+		for(int i = 1; i < ys.length; ++i)
+			regs.pushBack(makeRegion(ys[i-1], ys[i]));
 
-			if(error > 0.01)
-			{
-				int j = 1;
-				double sum = 0;
-				for(int i = 0; i < n && j < n; ++i)
-				{
-					while(j*norm/n < sum+area[i] && j < n)
-					{
-						ys[j] = xs[i] + (xs[i+1]-xs[i])* (j*norm/n - sum) / area[i];
-						ys[j] = max(ys[j], a);
-						ys[j] = min(ys[j], b);
-						++j;
-					}
-					sum += area[i];
-				}
-				assert(j==n);
-			}
-			else
-			{
-				double sum = 0;
-				for(int i = 1; i < n; ++i)
-				{
-					sum += area[i-1];
-					ys[i] = xs[i] + (norm/n*i-sum)/f(xs[i]);
-				}
-			}
-
-			swap(xs,ys);
-		}
-
-		// determine minima and maxima in each interval
-		mins.resize(n);
-		maxs.resize(n);
-		for(int i = 0; i < n; ++i)
-		{
-			// NOTE: a little leeway here does not impact correctness,
-			// but only decreases performance slightly.
-			mins[i] = minimize(f, fd, xs[i], xs[i+1])*0.99999;
-			maxs[i] = maximize(f, fd, xs[i], xs[i+1])*1.00001;
-		}
+		makePartialSums;
 	}
 
 	long nTries = 0;
@@ -110,31 +121,44 @@ class Sampler(F, FD)
 	double opCall(Rng)(ref Rng rng)
 		if(isSaturatedRandomEngine!Rng)
 	{
-		int i = randIndex(rng, cast(uint)n);
-		for(int hit = 0; hit < 50; ++hit)
+		while(true)
 		{
 			++nTries;
-			double x = xs[i] + (xs[i+1]-xs[i])*rand!double(rng).abs;
-			double z = rand!double(rng).abs*maxs[i];
-			if(z < mins[i])
+
+			// choose a region
+			size_t i = sums[].assumeSorted.lowerBound(sums[$-1]*rand!double(rng).abs).length;
+
+			double u = rand!double(rng).abs*(1 - exp(-regs[i].beta)) + exp(-regs[i].beta); // uniform in interval [exp(-beta), 1]
+			double x = log(u)/regs[i].beta+1; // exponential in interval [0,1]
+			if(regs[i].beta == 0)
+				x = rand!double(rng).abs;
+			assert(0 <= x && x <= 1);
+			double y = rand!double(rng).abs*exp(regs[i].alpha + regs[i].beta*x);
+
+			if(y > exp(regs[i].gamma + regs[i].delta*x))
 			{
-				++nAccepts;
-				return x;
+				++nEvals;
+				if(y > exp(f(regs[i].a + (regs[i].b-regs[i].a)*x)))
+				{
+					// subdivide the interval
+					if(regs.length < maxRegs)
+					{
+						double a = regs[i].a;
+						double b = regs[i].b;
+						double m = 0.5*(a+b);
+						regs[i] = makeRegion(a,m);
+						regs.pushBack(makeRegion(m,b));
+						makePartialSums();
+					}
+
+					// try again
+					continue;
+				}
 			}
 
-			++nEvals;
-			double fx = f(x);
-			assert(mins[i] <= fx && fx <= maxs[i]);
-			if(z < fx)
-			{
-				++nAccepts;
-				return x;
-			}
+			++nAccepts;
+			return regs[i].a + (regs[i].b-regs[i].a)*x;
 		}
-
-		// good samplers will have acc-probs of 0.9 to 0.99, so 50 rejected
-		// hits in a row are a very strong sign that something is wrong
-		throw new Exception("Sampler could not generate a new random number.");
 	}
 
 	double accProb() const @property
@@ -147,41 +171,26 @@ class Sampler(F, FD)
 		return cast(double)nEvals/nTries;
 	}
 
-	void plot()() const @property
+	/** plot f and its current approximation (for debugging) */
+	void plot()() @property
 	{
 		import math.gnuplot;
 		Array!double plotX, plotY, plotY2;
-		for(int i = 0; i < n; ++i)
+		sort!"a.a < b.a"(regs[]);
+
+		foreach(const ref r; regs)
 		{
-			plotX.pushBack(xs[i]);
-			plotX.pushBack(xs[i+1]);
-			plotY.pushBack(mins[i]);
-			plotY.pushBack(mins[i]);
-			plotY2.pushBack(maxs[i]);
-			plotY2.pushBack(maxs[i]);
+			plotX.pushBack(r.a);
+			plotX.pushBack(r.b);
+			plotY.pushBack(r.gamma);
+			plotY.pushBack(r.gamma + r.delta);
+			plotY2.pushBack(r.alpha);
+			plotY2.pushBack(r.alpha + r.beta);
 		}
 
 		auto plot = new Gnuplot;
-		plot.plotFunction(f, a, b);
+		plot.plotFunction(f, a, b, 1000, "log-prob");
 		plot.plotData(plotX[], plotY[], "min", "lines");
 		plot.plotData(plotX[], plotY2[], "max", "lines");
 	}
-}
-
-// minimizer for monotone/convex/concave functions
-private double minimize(F, FD)(F f, FD fd, double a, double b, double sign = 1)
-{
-	assert(a < b);
-	double r = min(sign*f(a), sign*f(b));
-	if(fd(a)*fd(b) <= 0)
-	{
-		double m = solve!(double, x=>fd(x))(a,b);
-		r = min(r, sign*f(m));
-	}
-	return r/sign;
-}
-
-private double maximize(F, FD)(F f, FD fd, double a, double b, double sign = 1)
-{
-	return minimize!F(f,fd,a,b,-sign);
 }
