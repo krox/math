@@ -11,86 +11,76 @@ private import std.algorithm;
 private import math.numerics;
 
 /**
- * General purpose method for solving f(x) = 0.
- * The result will be exact to full precision of T (assuming f is smooth).
+ * General purpose method for solving f(x) = 0. Uses secant method and falls
+ * back to bisecion if necessary. Result is accurate to full double precision.
  */
-T solve(T, alias _f)(T a, T b)
+double solve(F)(F f, double a, double b)
 {
-    alias unaryFun!_f f;
+	assert(!isNaN(a) && !isNaN(b));
 
-    if(a > b)
-        swap(a, b);
+	double fa = f(a);
+	double fb = f(b);
+	assert(!isNaN(fa) && !isNaN(fb));
+	if(fa == 0)
+		return a;
+	if(fb == 0)
+		return b;
+	assert(signbit(fa) != signbit(fb));
+	double c = b;
+	double fc = fb;
 
-    assert(!isNaN(a) && !isNaN(b));
+	// a should be the best guess
+	if(abs(fb) < abs(fa))
+	{
+		swap(a, b);
+		swap(fa, fb);
+	}
 
-    T fa = f(a);
-    T fb = f(b);
-    assert(!isNaN(fa) && !isNaN(fb));
+	for(int iter = 0; iter < 100; ++iter)
+	{
+		// choose new point x
+		double x = (b*fa - a*fb) / (fa - fb);   // secant method
+		if(!(a < x && x < c) && !(c < x && x < a)) // outside bracket (or nan) -> fall back to bisection
+		{
+			x = ieeeMean(a, c);
+			if(x == a || x == c) // there is no further floating point number between a and b -> we are done
+			{
+				if(abs(fc) < abs(fa))
+					return c;
+				else
+					return a;
+			}
+		}
 
-    if(fa == 0)
-        return a;
-    if(fb == 0)
-        return b;
+		// evaluate f at new point
+		b = a;
+		fb = fa;
+		a = x;
+		fa = f(x);
+		assert(!isNaN(fa));
+		if(fa == 0)
+			return a;
 
-    assert(signbit(fa) != signbit(fb));
+		// update brackets
+		if(signbit(fa) != signbit(fb))
+		{
+			c = b;
+			fc = fb;
+		}
+	}
 
-    return solveSecant!(T,_f)(a, b, fa, fb, 100); // TODO: the limit should depend on T
+	// TODO: this can be avoided by falling back to bisection not only when
+	// when secant method leads outside of bracket, but also if previous step(s)
+	// have been bad.
+	throw new NumericsException;
 }
 
-/**
- * Secant method with fallback to bisection if necessary.
- * conditions: a < b and f(a)*f(b) < 0
- */
-T solveSecant(T, alias _f)(T a, T b, T fa, T fb, int maxIter)
+unittest
 {
-    alias unaryFun!_f f;
-
-    assert(a < b);
-    auto s = signbit(fa);
-    assert(signbit(fa) != signbit(fb));
-
-    T left = a;
-    T right = b;
-
-    // a should be the best guess
-    if(abs(fb) < abs(fa))
-    {
-        swap(a, b);
-        swap(fa, fb);
-    }
-
-    while(maxIter --> 0)
-    {
-        // choose new point c
-        T c = (b*fa - a*fb) / (fa - fb);   // secant method
-        if(!(left < c && c < right)) // outside bracket (or nan) -> fall back to bisection
-        {
-            c = ieeeMean(left, right);
-            assert(left <= c && c <= right);
-            if(c == left || c == right) // there is no further floating point number between a and b -> we are done
-                return a;
-        }
-
-        // evaluate f at new point
-        b = a;
-        fb = fa;
-        a = c;
-        fa = f(c);
-        assert(!isNaN(fa));
-        if(fa == 0)
-            return a;
-
-        // update brackets
-        if(signbit(fa) == s)
-            left = a;
-        else
-            right = a;
-    }
-
-    // TODO: this can be avoided by falling back to bisection not only when
-    // when secant method leads outside of bracket, but also if previous step(s)
-    // have been bad.
-    throw new NumericsException;
+	import std.math;
+	// NOTE: these are accurate to full double precision
+	assert(solve((double x)=>x*x-2, 0, 10) == cast(double)sqrt(2.0));
+	assert(solve((double x)=>sin(x), 3, 4) == cast(double)PI);
 }
 
 /**
